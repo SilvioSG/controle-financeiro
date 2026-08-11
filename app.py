@@ -62,19 +62,21 @@ with st.sidebar:
         prefixo_mes = f"{ano_sel}-{mes_sel:02d}"
         dias_mes = calendar.monthrange(ano_sel, mes_sel)[1]
 
+        # Busca todos os saldos em UMA ÚNICA query (evita N+1 no banco de dados em nuvem)
+        saldos_db = conn.execute("""
+            SELECT 
+                c.tipo,
+                COALESCE(c.saldo_inicial, 0) +
+                COALESCE((SELECT SUM(valor) FROM transacoes WHERE conta_id = c.id AND tipo='receita'), 0) -
+                COALESCE((SELECT SUM(valor) FROM transacoes WHERE conta_id = c.id AND tipo='despesa'), 0)
+            FROM contas c
+        """).fetchall()
+
         # Saldo das contas normais (livre para gasto)
-        saldo_total = sum(
-            saldo_conta(conn, r[0])
-            for r in conn.execute(
-                "SELECT id FROM contas WHERE tipo NOT IN ('Reserva de Emergência', 'Cartão de Crédito')"
-            ).fetchall()
-        )
+        saldo_total = sum(s[1] for s in saldos_db if s[0] not in ('Reserva de Emergência', 'Cartão de Crédito'))
 
         # Saldo de todas as reservas
-        saldo_reserva = sum(
-            saldo_conta(conn, r[0])
-            for r in conn.execute("SELECT id FROM contas WHERE tipo = 'Reserva de Emergência'").fetchall()
-        )
+        saldo_reserva = sum(s[1] for s in saldos_db if s[0] == 'Reserva de Emergência')
 
         rec_total_todas = conn.execute(
             "SELECT COALESCE(SUM(valor),0) FROM transacoes WHERE tipo='receita'"
