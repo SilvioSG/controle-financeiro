@@ -101,8 +101,12 @@ def get_connection():
 
 def init_db(conn):
     """Cria todas as tabelas necessárias (compatível SQLite e PostgreSQL)."""
+    try:
+        conn.rollback() # Reset transaction state in case of previous errors
+    except:
+        pass
 
-    if conn.is_postgres:
+    if getattr(conn, 'is_postgres', False):
         _init_db_postgres(conn)
     else:
         _init_db_sqlite(conn)

@@ -26,3 +26,4 @@ Thumbs.db
 
 # Gemini agent files
 .agents/
+sync_seq.py
