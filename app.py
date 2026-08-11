@@ -29,9 +29,11 @@ if not check_password():
 
 # ─── Banco de Dados ──────────────────────────────────────────────────────────
 conn = get_connection()
-init_db(conn)
-seed_categorias(conn)
-seed_conta_padrao(conn)
+if "db_initialized" not in st.session_state:
+    init_db(conn)
+    seed_categorias(conn)
+    seed_conta_padrao(conn)
+    st.session_state["db_initialized"] = True
 
 # ─── Defaults (caso sidebar falhe) ────────────────────────────────────────────
 hoje = date.today()
