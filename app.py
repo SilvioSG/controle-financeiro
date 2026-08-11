@@ -105,7 +105,7 @@ with st.sidebar:
         st.markdown("---")
 
         # Score rápido na sidebar
-        score = calcular_score(conn, rec_mes, desp_mes, simples_mes, prefixo_mes, mes_sel, ano_sel)
+        score = calcular_score(conn, rec_mes, desp_mes, simples_mes, prefixo_mes, mes_sel, ano_sel, saldo_reserva)
         score_cor = "#00d4aa" if score >= 70 else ("#f59e0b" if score >= 40 else "#ff4b6e")
         score_label = "Excelente" if score >= 80 else ("Bom" if score >= 60 else ("Regular" if score >= 40 else "Crítico"))
         st.markdown(f"""

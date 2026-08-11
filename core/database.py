@@ -338,17 +338,14 @@ def seed_conta_padrao(conn):
 
 
 def saldo_conta(conn, conta_id):
-    """Calcula o saldo atual de uma conta (saldo_inicial + receitas - despesas)."""
-    row = conn.execute("SELECT saldo_inicial FROM contas WHERE id=?", (conta_id,)).fetchone()
-    if not row:
-        return 0
-    s = row[0]
-    s += conn.execute(
-        "SELECT COALESCE(SUM(valor),0) FROM transacoes WHERE conta_id=? AND tipo='receita'",
-        (conta_id,),
-    ).fetchone()[0]
-    s -= conn.execute(
-        "SELECT COALESCE(SUM(valor),0) FROM transacoes WHERE conta_id=? AND tipo='despesa'",
-        (conta_id,),
-    ).fetchone()[0]
-    return s
+    """Calcula o saldo atual de uma conta (saldo_inicial + receitas - despesas) em uma query única."""
+    sql = """
+        SELECT 
+            COALESCE(c.saldo_inicial, 0) +
+            COALESCE((SELECT SUM(valor) FROM transacoes WHERE conta_id = c.id AND tipo='receita'), 0) -
+            COALESCE((SELECT SUM(valor) FROM transacoes WHERE conta_id = c.id AND tipo='despesa'), 0)
+        FROM contas c
+        WHERE c.id = ?
+    """
+    row = conn.execute(sql, (conta_id,)).fetchone()
+    return row[0] if row else 0

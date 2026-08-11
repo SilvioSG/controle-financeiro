@@ -5,7 +5,7 @@ from core.utils import get_pref
 from core.database import saldo_conta
 
 
-def calcular_score(conn, rec, desp, simples, prefixo, mes, ano):
+def calcular_score(conn, rec, desp, simples, prefixo, mes, ano, saldo_reserva=0):
     """Score de saúde financeira 0-100."""
     pontos = 0
 
@@ -23,10 +23,6 @@ def calcular_score(conn, rec, desp, simples, prefixo, mes, ano):
         best_meta = max((a / m if m > 0 else 0) for m, a in metas)
         pontos_reserva = min(best_meta, 1.0) * 25
 
-    contas_reserva = conn.execute(
-        "SELECT id FROM contas WHERE tipo='Reserva de Emergência'"
-    ).fetchall()
-    saldo_reserva = sum(saldo_conta(conn, c[0]) for c in contas_reserva)
     if saldo_reserva > 0 and desp > 0:
         meses_garantidos = saldo_reserva / desp
         pontos_conta = min(meses_garantidos / 6, 1.0) * 25
@@ -40,28 +36,29 @@ def calcular_score(conn, rec, desp, simples, prefixo, mes, ano):
         (mes, ano),
     ).fetchall()
     if orcs:
-        dentro = 0
-        for cat_id, lim in orcs:
-            g = conn.execute(
-                "SELECT COALESCE(SUM(valor),0) FROM transacoes "
-                "WHERE tipo='despesa' AND categoria_id=? AND data LIKE ?",
-                (cat_id, f"{prefixo}%"),
-            ).fetchone()[0]
-            if g <= lim:
-                dentro += 1
+        # Pega gastos de todas as categorias no mês em 1 query (evita N+1)
+        g_por_cat = conn.execute(
+            "SELECT categoria_id, SUM(valor) FROM transacoes WHERE tipo='despesa' AND data LIKE ? GROUP BY categoria_id",
+            (f"{prefixo}%",)
+        ).fetchall()
+        gastos_dict = {row[0]: row[1] for row in g_por_cat}
+        
+        dentro = sum(1 for cat_id, lim in orcs if gastos_dict.get(cat_id, 0) <= lim)
         pontos += (dentro / len(orcs)) * 20
     else:
         pontos += 10  # sem orçamento = neutro
 
-    # 4. Tendência de gastos (15 pts) — comparar últimos 3 meses
-    gastos_3m = []
-    for i in range(1, 4):
-        p, _, _ = get_pref(mes - i, ano)
-        g = conn.execute(
-            "SELECT COALESCE(SUM(valor),0) FROM transacoes WHERE tipo='despesa' AND data LIKE ?",
-            (f"{p}%",),
-        ).fetchone()[0]
-        gastos_3m.append(g)
+    # 4. Tendência de gastos (15 pts) — comparar últimos 3 meses (1 query unificada)
+    prefs = [get_pref(mes - i, ano)[0] for i in range(1, 4)]
+    conds = " OR ".join(["data LIKE ?"] * 3)
+    params = tuple(f"{p}%" for p in prefs)
+    g_3m_data = conn.execute(
+        f"SELECT SUBSTR(data, 1, 7), SUM(valor) FROM transacoes WHERE tipo='despesa' AND ({conds}) GROUP BY SUBSTR(data, 1, 7)",
+        params
+    ).fetchall()
+    gastos_dict_3m = {r[0]: r[1] for r in g_3m_data}
+    gastos_3m = [gastos_dict_3m.get(p, 0) for p in prefs]
+
     if gastos_3m[0] > 0 and desp > 0:
         media = sum(gastos_3m) / len(gastos_3m) if any(gastos_3m) else desp
         if media > 0:
