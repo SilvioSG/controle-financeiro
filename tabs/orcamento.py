@@ -79,10 +79,16 @@ def render(ctx):
             with fo2:
                 ov = st.number_input("Limite (R$)", min_value=1.0, step=50.0, format="%.2f")
             if st.form_submit_button("💾 Definir", width='stretch'):
-                conn.execute(
-                    "INSERT OR REPLACE INTO orcamentos (categoria_id,valor_limite,mes,ano) VALUES (?,?,?,?)",
-                    (oid, ov, mes_sel, ano_sel),
-                )
+                if getattr(conn, 'is_postgres', False):
+                    conn.execute(
+                        "INSERT INTO orcamentos (categoria_id,valor_limite,mes,ano) VALUES (?,?,?,?) ON CONFLICT (categoria_id, mes, ano) DO UPDATE SET valor_limite = EXCLUDED.valor_limite",
+                        (oid, ov, mes_sel, ano_sel),
+                    )
+                else:
+                    conn.execute(
+                        "INSERT OR REPLACE INTO orcamentos (categoria_id,valor_limite,mes,ano) VALUES (?,?,?,?)",
+                        (oid, ov, mes_sel, ano_sel),
+                    )
                 conn.commit()
                 st.success("✅ Definido!")
                 st.rerun()

@@ -77,8 +77,14 @@ def aprender_categoria(conn, descricao, categoria_id):
     if palavras:
         palavra_chave = max(palavras, key=len)
         if len(palavra_chave) >= 3:
-            conn.execute(
-                "INSERT OR REPLACE INTO mapeamento_categorias (palavra, categoria_id) VALUES (?,?)",
-                (palavra_chave, categoria_id),
-            )
+            if getattr(conn, 'is_postgres', False):
+                conn.execute(
+                    "INSERT INTO mapeamento_categorias (palavra, categoria_id) VALUES (?,?) ON CONFLICT (palavra) DO UPDATE SET categoria_id = EXCLUDED.categoria_id",
+                    (palavra_chave, categoria_id),
+                )
+            else:
+                conn.execute(
+                    "INSERT OR REPLACE INTO mapeamento_categorias (palavra, categoria_id) VALUES (?,?)",
+                    (palavra_chave, categoria_id),
+                )
             conn.commit()
