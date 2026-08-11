@@ -81,7 +81,7 @@ def render(ctx):
                 "Tipo", ["despesa", "receita", "ambos"],
                 format_func=lambda x: {"despesa": "🔴 Despesa", "receita": "🟢 Receita", "ambos": "🔄 Ambos"}[x],
             )
-        if st.form_submit_button("💾 Criar", use_container_width=True):
+        if st.form_submit_button("💾 Criar", width='stretch'):
             if nm.strip():
                 conn.execute("INSERT INTO categorias (nome,icone,tipo) VALUES (?,?,?)", (nm.strip(), ic2, tp))
                 conn.commit()

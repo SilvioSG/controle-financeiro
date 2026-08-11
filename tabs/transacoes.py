@@ -3,6 +3,7 @@ tabs/transacoes.py — Aba de Transações (criar, listar, buscar, editar, impor
 """
 import streamlit as st
 import pandas as pd
+import html
 from datetime import date, datetime
 
 from core.utils import fmt, fmt_data_pt, MESES_PT
@@ -108,7 +109,7 @@ def render(ctx):
             
         recorrente_tx = st.checkbox("🔄 Lançamento Recorrente (Repete todo mês)")
 
-        if st.form_submit_button("💾 Salvar Transação", use_container_width=True, type="primary"):
+        if st.form_submit_button("💾 Salvar Transação", width='stretch', type="primary"):
             if desc_tx.strip() and valor_tx > 0 and cat_id and conta_id:
                 rec_val = 1 if recorrente_tx else 0
                 cursor = conn.execute(
@@ -198,7 +199,7 @@ def render(ctx):
                         tags_html += f' <span style="font-size:0.55rem;background:rgba(255,255,255,0.08);color:#a0aec0;padding:0.15rem 0.35rem;border-radius:4px;margin-left:0.2rem;">#{tag.strip()}</span>'
                 st.markdown(f"""<div class="tx-item"><div class="tx-left">
                     <div class="tx-cat-icon {'inc-bg' if ii else 'exp-bg'}">{tx['ci'] or '📌'}</div>
-                    <div><div class="tx-desc">{tx['descricao']}{rec_badge}</div><div class="tx-meta">{tx['cat'] or ''} · {tx['conta'] or ''}{obs_html}{tags_html}</div></div>
+                    <div><div class="tx-desc">{html.escape(tx['descricao'])}{rec_badge}</div><div class="tx-meta">{html.escape(tx['cat']) if tx['cat'] else ''} · {html.escape(tx['conta']) if tx['conta'] else ''}{obs_html}{tags_html}</div></div>
                     </div><div class="tx-amount {'inc' if ii else 'exp'}">{'+'if ii else'-'} {fmt(tx['valor'])}</div></div>""", unsafe_allow_html=True)
             with ce:
                 if st.button("✏️", key=f"ed_{tx['id']}"):
@@ -252,7 +253,7 @@ def render(ctx):
 
                         e_save, e_cancel = st.columns(2)
                         with e_save:
-                            if st.form_submit_button("💾 Salvar", use_container_width=True, type="primary"):
+                            if st.form_submit_button("💾 Salvar", width='stretch', type="primary"):
                                 if ed_desc.strip() and ed_valor > 0 and ed_cat_id:
                                     conn.execute(
                                         "UPDATE transacoes SET descricao=?, valor=?, data=?, categoria_id=?, observacao=? WHERE id=?",
@@ -263,7 +264,7 @@ def render(ctx):
                                     st.success("✅ Atualizada!")
                                     st.rerun()
                         with e_cancel:
-                            if st.form_submit_button("❌ Cancelar", use_container_width=True):
+                            if st.form_submit_button("❌ Cancelar", width='stretch'):
                                 st.session_state[f"editing_{tx['id']}"] = False
                                 st.rerun()
                     st.markdown("</div>", unsafe_allow_html=True)

@@ -72,7 +72,7 @@ def render(ctx):
             vm = st.number_input("Valor da meta (R$)", min_value=0.01, step=100.0, format="%.2f")
         with m3:
             va = st.number_input("Valor já guardado (R$)", min_value=0.0, step=100.0, format="%.2f")
-        if st.form_submit_button("💾 Criar Meta", use_container_width=True):
+        if st.form_submit_button("💾 Criar Meta", width='stretch'):
             if nm2.strip() and vm > 0:
                 conn.execute("INSERT INTO metas (nome,valor_meta,valor_atual) VALUES (?,?,?)", (nm2.strip(), vm, va))
                 conn.commit()

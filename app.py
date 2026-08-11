@@ -113,7 +113,7 @@ with st.sidebar:
         st.caption(f"📅 {MESES_PT[mes_sel]} / {ano_sel}")
 
         st.markdown("---")
-        if st.button("📄 Gerar Relatório (PDF)", use_container_width=True):
+        if st.button("📄 Gerar Relatório (PDF)", width='stretch'):
             from intelligence.report import gerar_relatorio_pdf
             path_pdf = gerar_relatorio_pdf(conn, mes_sel, ano_sel, prefixo_mes, rec_mes, desp_mes, simples_mes, balanco_mes, score)
             with open(path_pdf, "rb") as pdf_file:
@@ -122,7 +122,7 @@ with st.sidebar:
                     data=pdf_file,
                     file_name=f"Relatorio_Financeiro_{prefixo_mes}.pdf",
                     mime="application/pdf",
-                    use_container_width=True,
+                    width='stretch',
                     type="primary"
                 )
     except Exception as e:

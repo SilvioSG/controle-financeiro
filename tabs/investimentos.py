@@ -3,7 +3,7 @@ tabs/investimentos.py — Aba de Investimentos e simulador.
 """
 import streamlit as st
 import plotly.graph_objects as go
-import google.generativeai as genai
+import google.genai as genai
 
 from core.utils import fmt, PLOTLY_LAYOUT
 from components.cards import sec
@@ -28,14 +28,13 @@ def render(ctx):
             help="Pegue sua chave gratuitamente no Google AI Studio (aistudio.google.com).",
         )
 
-        if st.button("Gerar Análise Personalizada", type="primary", use_container_width=True):
+        if st.button("Gerar Análise Personalizada", type="primary", width='stretch'):
             if not api_key:
                 st.error("Por favor, insira sua Chave de API para usar a Inteligência Artificial.")
             else:
                 with st.spinner("A IA está analisando suas finanças. Isso pode levar alguns segundos..."):
                     try:
-                        genai.configure(api_key=api_key)
-                        model = genai.GenerativeModel('gemini-3.5-flash')
+                        client = genai.Client(api_key=api_key)
 
                         metas_ativas = conn.execute("SELECT nome, valor_meta, valor_atual FROM metas").fetchall()
                         metas_str = ", ".join(
@@ -58,7 +57,7 @@ def render(ctx):
                         Não seja genérico. Dê nomes aos produtos (ex: "CDB 110% CDI", "Tesouro IPCA+").
                         Responda em formato Markdown, usando emojis e destaque em negrito onde for importante. Seja encorajador!
                         """
-                        response = model.generate_content(prompt)
+                        response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
                         st.markdown(f'''
                         <div class="glass-card" style="border-left: 4px solid var(--purple); background: rgba(168,85,247,0.05); margin-top: 1rem;">
                             <h4 style="margin-top:0; color:var(--purple); display:flex; align-items:center; gap:0.5rem;">🤖 Consultor Financeiro Inteligente</h4>

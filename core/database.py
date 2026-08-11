@@ -5,6 +5,7 @@ Suporta SQLite (dev local) e PostgreSQL/Supabase (produção).
 import streamlit as st
 import sqlite3
 import re
+import threading
 
 
 # ─── Wrapper de Conexão ──────────────────────────────────────────────────────
@@ -17,36 +18,37 @@ class DBConnection:
     - Funciona de forma transparente com pd.read_sql_query()
     """
 
-    def __init__(self, raw_conn, is_postgres=False):
-        self._conn = raw_conn
+    def __init__(self, conn, is_postgres=False):
+        self._conn = conn
         self.is_postgres = is_postgres
+        self.lock = threading.Lock()
 
-    @staticmethod
-    def _convert_sql(sql):
-        """Converte placeholders ? para %s (PostgreSQL)."""
-        # Não converter ? dentro de strings literais
-        return re.sub(r'\?', '%s', sql)
+    def _set_rls(self, cur):
+        user_id = st.session_state.get("user_id")
+        if user_id and self.is_postgres:
+            cur.execute("SELECT set_config('request.jwt.claim.sub', %s, false)", (str(user_id),))
 
     def execute(self, sql, params=None):
-        if self.is_postgres:
-            sql = self._convert_sql(sql)
-            # PostgreSQL psycopg2 precisa de tuple para params
-            if params and isinstance(params, list):
-                params = tuple(params)
-        cur = self._conn.cursor()
-        if params:
-            cur.execute(sql, params)
-        else:
-            cur.execute(sql)
-        return cur
+        with self.lock:
+            cur = self._conn.cursor()
+            self._set_rls(cur)
+            if self.is_postgres:
+                sql = re.sub(r'\?', '%s', sql)
+            if params:
+                cur.execute(sql, params)
+            else:
+                cur.execute(sql)
+            return cur
 
     def executemany(self, sql, params_list):
-        if self.is_postgres:
-            sql = self._convert_sql(sql)
-            params_list = [tuple(p) if isinstance(p, list) else p for p in params_list]
-        cur = self._conn.cursor()
-        cur.executemany(sql, params_list)
-        return cur
+        with self.lock:
+            cur = self._conn.cursor()
+            self._set_rls(cur)
+            if self.is_postgres:
+                sql = re.sub(r'\?', '%s', sql)
+                params_list = [tuple(p) if isinstance(p, list) else p for p in params_list]
+            cur.executemany(sql, params_list)
+            return cur
 
     def commit(self):
         self._conn.commit()
@@ -62,11 +64,14 @@ class DBConnection:
 def read_sql(sql, conn, params=None):
     """Wrapper para pd.read_sql_query que converte placeholders automaticamente."""
     import pandas as pd
+    import warnings
     if getattr(conn, 'is_postgres', False):
         sql = re.sub(r'\?', '%s', sql)
-    if params:
-        return pd.read_sql_query(sql, conn, params=params)
-    return pd.read_sql_query(sql, conn)
+    with warnings.catch_warnings():
+        warnings.simplefilter('ignore', UserWarning)
+        if params:
+            return pd.read_sql_query(sql, conn, params=params)
+        return pd.read_sql_query(sql, conn)
 
 
 # ─── Conexão ──────────────────────────────────────────────────────────────────

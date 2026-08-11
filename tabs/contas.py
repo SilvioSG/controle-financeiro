@@ -53,7 +53,7 @@ def render(ctx):
                     en = st.text_input("Novo nome da conta", value=c["nome"], key=f"en_{c['id']}")
                 with ce2:
                     st.markdown("<br>", unsafe_allow_html=True)
-                    if st.button("Salvar", key=f"es_{c['id']}", type="primary", use_container_width=True):
+                    if st.button("Salvar", key=f"es_{c['id']}", type="primary", width='stretch'):
                         if en.strip():
                             conn.execute("UPDATE contas SET nome=? WHERE id=?", (en.strip(), c["id"]))
                             conn.commit()
@@ -81,7 +81,7 @@ def render(ctx):
             with ft4:
                 data_transf = st.date_input("Data", value=date.today(), key="transf_data")
 
-            if st.form_submit_button("🔄 Transferir", use_container_width=True, type="primary"):
+            if st.form_submit_button("🔄 Transferir", width='stretch', type="primary"):
                 id_orig = origem_opt[sel_orig]
                 id_dest = destino_opt[sel_dest]
                 if id_orig == id_dest:
@@ -131,7 +131,7 @@ def render(ctx):
             si = st.number_input("Saldo Inicial (R$)", step=100.0, format="%.2f")
         dfech, dvenc = 1, 10
 
-    if st.button("💾 Criar Conta", use_container_width=True, type="primary"):
+    if st.button("💾 Criar Conta", width='stretch', type="primary"):
         if nc.strip():
             if tc == "Cartão de Crédito":
                 conn.execute(
@@ -174,7 +174,7 @@ def render(ctx):
                 
             obs_transf = st.text_input("Observação (opcional)", placeholder="Ex: Guardando reserva")
             
-            if st.form_submit_button("Realizar Transferência", type="primary", use_container_width=True):
+            if st.form_submit_button("Realizar Transferência", type="primary", width='stretch'):
                 orig_id = ct_opts[orig_nome]
                 dest_id = ct_opts[dest_nome]
                 

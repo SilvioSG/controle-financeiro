@@ -7,6 +7,7 @@ import plotly.graph_objects as go
 
 from core.utils import fmt, get_pref, MESES_PT, TAXA_SIMPLES, PLOTLY_LAYOUT
 from core.database import read_sql
+import html
 from components.cards import sec
 from intelligence.insights import gerar_insights
 
@@ -171,7 +172,7 @@ def render(ctx):
                 fig_cat.add_trace(go.Scatter(x=df_cat["mes"], y=df_cat["total"], mode="lines+markers", name=cat, line=dict(width=3)))
                 
             fig_cat.update_layout(**PLOTLY_LAYOUT, height=300, yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.03)"), xaxis=dict(showgrid=False))
-            st.plotly_chart(fig_cat, use_container_width=True)
+            st.plotly_chart(fig_cat, width='stretch')
     else:
         st.info("Sem dados suficientes para os últimos 6 meses.")
     st.markdown("<br>", unsafe_allow_html=True)

@@ -5,3 +5,4 @@ google-generativeai
 fpdf2
 psycopg2-binary
 bcrypt
+supabase

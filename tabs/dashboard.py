@@ -4,6 +4,7 @@ tabs/dashboard.py — Aba principal do Dashboard.
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
+import html
 import calendar
 
 from core.utils import fmt, get_pref, MESES_PT, PLOTLY_LAYOUT
@@ -356,8 +357,8 @@ def render(ctx):
                         <div class="top-exp-left">
                             <div class="top-exp-rank">{rank_icons[i]}</div>
                             <div>
-                                <div class="top-exp-name">{row['icone'] or '📌'} {row['descricao']}</div>
-                                <div style="font-size:0.65rem;color:#5a6478;">{row['cat'] or ''} · {row['data']}</div>
+                                <div class="top-exp-name">{row['icone'] or '📌'} {html.escape(row['descricao'])}</div>
+                                <div style="font-size:0.65rem;color:#5a6478;">{html.escape(row['cat']) if row['cat'] else ''} · {row['data']}</div>
                             </div>
                         </div>
                         <div>
