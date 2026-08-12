@@ -86,8 +86,8 @@ def check_password() -> bool:
         
         with tab1:
             with st.form("login_form"):
-                email_login = st.text_input("📧 Email", placeholder="Digite seu email")
-                pass_login = st.text_input("🔒 Senha", type="password", placeholder="Digite sua senha")
+                email_login = st.text_input("📧 Email", placeholder="Digite seu email", autocomplete="username")
+                pass_login = st.text_input("🔒 Senha", type="password", placeholder="Digite sua senha", autocomplete="current-password")
                 submitted_login = st.form_submit_button("Entrar", width='stretch', type="primary")
 
             if submitted_login:

@@ -87,6 +87,44 @@ def render(ctx):
             </div>
         """, unsafe_allow_html=True)
 
+    # ── Gamificação (Badges) ──────────────────────────────────────────────────
+    badges_ganhas = []
+    
+    # Badge 1: Poupador (Sobrou dinheiro no mês)
+    if (rec_mes - desp_mes - simples_mes) > 0 and desp_mes > 0:
+        badges_ganhas.append(("💰", "Poupador", "Fechando o mês no azul", "#4e8cff"))
+        
+    # Badge 2: Reserva Forte (Reserva > 3x despesas)
+    from core.database import saldo_conta
+    contas_reserva = conn.execute("SELECT id FROM contas WHERE tipo='Reserva de Emergência'").fetchall()
+    saldo_reserva_local = sum(saldo_conta(conn, c[0]) for c in contas_reserva)
+    if saldo_reserva_local > 0 and desp_mes > 0 and (saldo_reserva_local / desp_mes) >= 3:
+        badges_ganhas.append(("🛡️", "Blindado", "+3 meses de reserva", "#a855f7"))
+        
+    # Badge 3: Investidor Ativo (Aportes no mês)
+    aportes = conn.execute(
+        "SELECT COUNT(*) FROM transacoes t JOIN contas c ON t.conta_id = c.id "
+        "WHERE c.tipo = 'Corretora/Investimento' AND t.tipo = 'despesa' AND t.data LIKE ?",
+        (f"{prefixo_mes}%",)
+    ).fetchone()[0]
+    if aportes > 0:
+        badges_ganhas.append(("📈", "Investidor", "Aportou neste mês", "#00d4aa"))
+        
+    if badges_ganhas:
+        sec("🏅", "Suas Conquistas")
+        cols_b = st.columns(len(badges_ganhas))
+        for i, (emoji, titulo, desc, cor) in enumerate(badges_ganhas):
+            with cols_b[i]:
+                st.markdown(f"""
+                <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.05); padding:1rem; border-radius:12px; text-align:center; position:relative; overflow:hidden;">
+                    <div style="position:absolute; top:-10px; right:-10px; width:40px; height:40px; background:{cor}; filter:blur(20px); opacity:0.3; border-radius:50%;"></div>
+                    <div style="font-size:2rem; margin-bottom:0.3rem;">{emoji}</div>
+                    <div style="font-weight:700; color:{cor}; font-size:0.9rem;">{titulo}</div>
+                    <div style="font-size:0.7rem; color:#8b95a5;">{desc}</div>
+                </div>
+                """, unsafe_allow_html=True)
+        st.markdown("<br>", unsafe_allow_html=True)
+
     # ── Atalhos de Lançamento (Fase 5.3) ──────────────────────────────
     sec("⚡", "Lançamento Rápido")
     atalhos = conn.execute(
@@ -249,6 +287,105 @@ def render(ctx):
 
     st.markdown("<br>", unsafe_allow_html=True)
 
+    # ── Previsão de Contas a Pagar (Fase 4) ───────────────────────────────────
+    sec("📅", "Próximos Vencimentos")
+    recorrentes = conn.execute(
+        "SELECT t.id, t.descricao, t.valor, t.data, c.icone "
+        "FROM transacoes t LEFT JOIN categorias c ON t.categoria_id = c.id "
+        "WHERE t.recorrente=1 AND t.tipo='despesa' "
+        "ORDER BY substr(t.data,9,2) ASC"
+    ).fetchall()
+    
+    if recorrentes:
+        # Filtrar apenas as que ainda não venceram este mês
+        futuras = [r for r in recorrentes if int(r[3][-2:]) >= hoje.day]
+        if futuras:
+            for r in futuras:
+                dia_vencimento = int(r[3][-2:])
+                dias_falta = dia_vencimento - hoje.day
+                status_venc = "Hoje!" if dias_falta == 0 else f"Faltam {dias_falta} dias"
+                cor_venc = "#ff4b6e" if dias_falta <= 3 else "#f59e0b" if dias_falta <= 7 else "#00d4aa"
+                
+                st.markdown(f"""
+                <div style="background:rgba(255,255,255,0.02); border-radius:8px; padding:0.8rem; margin-bottom:0.4rem; display:flex; justify-content:space-between; align-items:center; border-left:3px solid {cor_venc};">
+                    <div style="display:flex; align-items:center; gap:0.8rem;">
+                        <div style="font-size:1.5rem;">{r[4] or '📌'}</div>
+                        <div>
+                            <div style="font-weight:600; font-size:0.9rem;">{r[1]}</div>
+                            <div style="font-size:0.7rem; color:{cor_venc};">{status_venc} (Dia {dia_vencimento})</div>
+                        </div>
+                    </div>
+                    <div style="font-weight:700; color:#ff4b6e;">- {fmt(r[2])}</div>
+                </div>
+                """, unsafe_allow_html=True)
+        else:
+            st.info("Nenhuma conta fixa para vencer nos próximos dias deste mês! 🎉")
+    else:
+        st.info("Nenhuma conta recorrente cadastrada.")
+    
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    # ── Gráfico de Projeção de Fluxo de Caixa (Fase 4.1) ──────────────────────
+    if hoje.month == mes_sel and hoje.year == ano_sel:
+        sec("📈", "Projeção de Saldo (Próximos 30 dias)")
+        st.caption("Evolução do seu saldo bancário baseada em contas fixas, faturas e lançamentos futuros.")
+        
+        # Gerar datas dos próximos 30 dias
+        import datetime
+        datas_futuras = [hoje + datetime.timedelta(days=i) for i in range(31)]
+        saldos_projetados = []
+        saldo_simulado = saldo_total
+        
+        # Buscar todas as transacoes futuras reais e parceladas
+        tx_futuras_db = conn.execute(
+            "SELECT data, valor, tipo FROM transacoes WHERE data > ?", (hoje.strftime("%Y-%m-%d"),)
+        ).fetchall()
+        tx_futuras_dict = {}
+        for d, v, t in tx_futuras_db:
+            if d not in tx_futuras_dict: tx_futuras_dict[d] = 0
+            tx_futuras_dict[d] += v if t == 'receita' else -v
+            
+        for dia_data in datas_futuras:
+            str_data = dia_data.strftime("%Y-%m-%d")
+            
+            # Subtrair/Somar transacoes lançadas pro futuro (parcelas, agendamentos)
+            if str_data in tx_futuras_dict:
+                saldo_simulado += tx_futuras_dict[str_data]
+                
+            # Subtrair contas recorrentes (assumindo que caem no mesmo dia de sempre se ainda não caíram)
+            for r in recorrentes: # r = id, desc, valor, data, icone
+                dia_vencimento = int(r[3][-2:])
+                if dia_data.day == dia_vencimento:
+                    # Checar se já foi paga neste mês/ano
+                    ja_paga = conn.execute(
+                        "SELECT COUNT(*) FROM transacoes WHERE descricao = ? AND tipo = 'despesa' AND data LIKE ?",
+                        (r[1], f"{dia_data.year}-{dia_data.month:02d}%")
+                    ).fetchone()[0]
+                    if ja_paga == 0 or dia_data.month != hoje.month:
+                        saldo_simulado -= r[2]
+            
+            saldos_projetados.append(saldo_simulado)
+            
+        fig_proj = go.Figure()
+        fig_proj.add_trace(go.Scatter(
+            x=datas_futuras, y=saldos_projetados, 
+            mode='lines', name='Saldo Projetado',
+            line=dict(color='#00d4aa', width=3, shape='spline'),
+            fill='tozeroy', fillcolor='rgba(0, 212, 170, 0.1)'
+        ))
+        
+        layout_kwargs = PLOTLY_LAYOUT.copy()
+        layout_kwargs["margin"] = dict(l=0, r=0, t=10, b=0)
+        layout_kwargs["height"] = 250
+        
+        fig_proj.update_layout(
+            **layout_kwargs,
+            yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.03)", zeroline=True, zerolinecolor="rgba(255,255,255,0.1)"), 
+            xaxis=dict(showgrid=False, tickformat="%d/%m")
+        )
+        st.plotly_chart(fig_proj, width='stretch')
+        st.markdown("<br>", unsafe_allow_html=True)
+    
     # ── Gráficos ──────────────────────────────────────────────────────
     col_g1, col_g2 = st.columns(2)
     with col_g1:

@@ -42,6 +42,76 @@ def render(ctx):
             </div>
         """, unsafe_allow_html=True)
 
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    # ── IA Consultor de Custos ─────────────────────────────────────────
+    with st.expander("🤖 Consultor de Redução de Custos (IA Gemini)", expanded=False):
+        st.markdown("A Inteligência Artificial vai analisar todos os seus gastos deste mês e sugerir cortes precisos e planos de economia.")
+        
+        import google.genai as genai
+        api_key_custos = st.text_input(
+            "Chave de API do Google Gemini", type="password",
+            key="gemini_key_custos",
+            help="Pegue sua chave gratuitamente no Google AI Studio (aistudio.google.com).",
+        )
+
+        if st.button("Analisar Meus Gastos", type="primary"):
+            if not api_key_custos:
+                st.error("Por favor, insira sua Chave de API para usar a Inteligência Artificial.")
+            else:
+                with st.spinner("A IA está analisando suas transações. Isso pode levar alguns segundos..."):
+                    try:
+                        client = genai.Client(api_key=api_key_custos)
+                        
+                        # Buscar todas as despesas do mês selecionado
+                        txs_ia = conn.execute(
+                            "SELECT t.descricao, t.valor, c.nome, t.data FROM transacoes t "
+                            "LEFT JOIN categorias c ON t.categoria_id = c.id "
+                            "WHERE t.tipo = 'despesa' AND t.data LIKE ?", (f"{prefixo_mes}%",)
+                        ).fetchall()
+                        
+                        if not txs_ia:
+                            st.warning("Você não tem gastos registrados neste mês para analisar.")
+                        else:
+                            gastos_str = "\\n".join([f"- {tx[3]}: {tx[0]} ({tx[2]}) -> R$ {tx[1]:.2f}" for tx in txs_ia])
+                            
+                            prompt = f"""
+                            Atue como um consultor financeiro implacável especializado em redução de custos pessoais.
+                            O usuário quer saber onde ele pode cortar gastos baseado nas transações deste mês.
+                            
+                            Resumo do mês:
+                            Receitas: R$ {rec_mes:.2f}
+                            Despesas: R$ {desp_mes:.2f}
+                            
+                            Lista detalhada de Despesas:
+                            {gastos_str}
+                            
+                            Sua tarefa:
+                            1. Identifique os 3 maiores gargalos ou gastos supérfluos (se houver).
+                            2. Sugira cortes ou trocas práticas (ex: 'trocar plano A por B', 'reduzir ifood', etc).
+                            3. Dê uma nota de 0 a 10 para o controle de gastos deste mês.
+                            
+                            Responda diretamente ao usuário com tom amigável mas firme. Formate a resposta usando Markdown (listas, negritos). Não crie textos muito longos, seja direto ao ponto.
+                            """
+                            
+                            response = client.models.generate_content(
+                                model='gemini-2.5-flash',
+                                contents=prompt
+                            )
+                            
+                            st.markdown("""
+                            <div style="background:rgba(168,85,247,0.1); border-left:4px solid var(--purple); padding:1rem; border-radius:8px; margin-top:1rem;">
+                                <h4 style="color:var(--purple); margin-top:0;">🤖 Análise da I.A. Concluída</h4>
+                            """, unsafe_allow_html=True)
+                            
+                            st.markdown(response.text)
+                            
+                            st.markdown("</div>", unsafe_allow_html=True)
+                            
+                    except Exception as e:
+                        st.error(f"Erro ao consultar a IA: {e}")
+
     st.markdown("<br>", unsafe_allow_html=True)
 
     # ── Comparativo mês atual vs anterior ─────────────────────────────

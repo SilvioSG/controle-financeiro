@@ -107,30 +107,47 @@ def render(ctx):
         with f8:
             tags_tx = st.text_input("Tags (separadas por vírgula)", placeholder="Ex: viagem, lazer")
             
-        recorrente_tx = st.checkbox("🔄 Lançamento Recorrente (Repete todo mês)")
+        f9, f10 = st.columns(2)
+        with f9:
+            recorrente_tx = st.checkbox("🔄 Lançamento Recorrente (Conta Fixa Mensal)")
+        with f10:
+            parcelado_tx = st.checkbox("💳 Compra Parcelada")
+            if parcelado_tx:
+                qtd_parcelas = st.number_input("Número de Parcelas", min_value=2, max_value=72, value=2, step=1)
+            else:
+                qtd_parcelas = 1
 
         if st.form_submit_button("💾 Salvar Transação", width='stretch', type="primary"):
             if desc_tx.strip() and valor_tx > 0 and cat_id and conta_id:
-                rec_val = 1 if recorrente_tx else 0
-                cursor = conn.execute(
-                    "INSERT INTO transacoes (tipo,descricao,valor,data,categoria_id,conta_id,recorrente,observacao) "
-                    "VALUES (?,?,?,?,?,?,?,?)",
-                    (tipo_tx, desc_tx.strip(), valor_tx, data_tx.strftime("%Y-%m-%d"),
-                     cat_id, conta_id, rec_val, obs_tx.strip()),
-                )
-                tx_id = cursor.lastrowid
+                # Tratar parcelamento (Fase 2.1)
+                from dateutil.relativedelta import relativedelta
                 
-                if tags_tx.strip():
-                    tags_list = [t.strip().lower() for t in tags_tx.split(",") if t.strip()]
-                    for tag_nome in set(tags_list):
-                        conn.execute("INSERT OR IGNORE INTO tags (nome) VALUES (?)", (tag_nome,))
-                        tag_id = conn.execute("SELECT id FROM tags WHERE nome = ?", (tag_nome,)).fetchone()[0]
-                        conn.execute("INSERT INTO transacao_tags (transacao_id, tag_id) VALUES (?, ?)", (tx_id, tag_id))
+                try:
+                    for i in range(qtd_parcelas):
+                        desc_atual = f"{desc_tx.strip()} ({i+1}/{qtd_parcelas})" if qtd_parcelas > 1 else desc_tx.strip()
+                        valor_atual = valor_tx / qtd_parcelas if qtd_parcelas > 1 else valor_tx
+                        data_atual = (data_tx + relativedelta(months=i)).strftime("%Y-%m-%d")
+                        rec_val = 1 if (recorrente_tx and qtd_parcelas == 1) else 0 # Não pode ser parcelado E recorrente infinito ao mesmo tempo
                         
-                aprender_categoria(conn, desc_tx, cat_id)
-                conn.commit()
-                st.success("✅ Transação salva!")
-                st.rerun()
+                        cursor = conn.execute(
+                            "INSERT INTO transacoes (tipo,descricao,valor,data,categoria_id,conta_id,recorrente,observacao) "
+                            "VALUES (?,?,?,?,?,?,?,?)",
+                            (tipo_tx, desc_atual, valor_atual, data_atual,
+                             cat_id, conta_id, rec_val, obs_tx.strip()),
+                        )
+                        tx_id = cursor.lastrowid
+                        
+                        if tags_tx.strip():
+                            from core.utils import processar_tags
+                            processar_tags(conn, tx_id, tags_tx)
+                            
+                    aprender_categoria(conn, desc_tx, cat_id)
+                    conn.commit()
+                    st.success(f"✅ Transação salva!" if qtd_parcelas == 1 else f"✅ Compra parcelada salva em {qtd_parcelas}x!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Erro ao salvar: {e}")
+
             else:
                 st.error("Preencha todos os campos.")
 
@@ -175,7 +192,7 @@ def render(ctx):
             except Exception as e:
                 st.error(f"Erro ao ler arquivo: {e}")
 
-    # ── Listagem ──────────────────────────────────────────────────────
+    # ── Listagem (Com AgGrid) ─────────────────────────────────────────
     sec("🔍", f"Transações de {MESES_PT[mes_sel]}")
     busca = st.text_input("Buscar...", placeholder="Filtrar por descrição...", key="busca_tx")
     txs = get_transacoes_mes(conn, prefixo_mes, busca)
@@ -183,88 +200,65 @@ def render(ctx):
     if txs.empty:
         st.info("Nenhuma transação.")
     else:
-        cur_day = None
-        for _, tx in txs.iterrows():
-            if tx["data"] != cur_day:
-                cur_day = tx["data"]
-                st.markdown(f'<div class="day-header">📅 {fmt_data_pt(cur_day)}</div>', unsafe_allow_html=True)
-            ii = tx["tipo"] == "receita"
-            ct, ce, cd = st.columns([11, 1, 1])
-            with ct:
-                rec_badge = ' <span style="font-size:0.6rem;background:rgba(78,140,255,0.15);color:#4e8cff;padding:0.1rem 0.4rem;border-radius:6px;">🔄 Recorrente</span>' if tx.get("recorrente") else ""
-                obs_html = f' <span style="font-size:0.65rem;color:#5a6478;">— {tx["observacao"]}</span>' if tx.get("observacao") else ""
-                tags_html = ""
-                if tx.get("tags_str"):
-                    for tag in tx["tags_str"].split(","):
-                        tags_html += f' <span style="font-size:0.55rem;background:rgba(255,255,255,0.08);color:#a0aec0;padding:0.15rem 0.35rem;border-radius:4px;margin-left:0.2rem;">#{tag.strip()}</span>'
-                st.markdown(f"""<div class="tx-item"><div class="tx-left">
-                    <div class="tx-cat-icon {'inc-bg' if ii else 'exp-bg'}">{tx['ci'] or '📌'}</div>
-                    <div><div class="tx-desc">{html.escape(tx['descricao'])}{rec_badge}</div><div class="tx-meta">{html.escape(tx['cat']) if tx['cat'] else ''} · {html.escape(tx['conta']) if tx['conta'] else ''}{obs_html}{tags_html}</div></div>
-                    </div><div class="tx-amount {'inc' if ii else 'exp'}">{'+'if ii else'-'} {fmt(tx['valor'])}</div></div>""", unsafe_allow_html=True)
-            with ce:
-                if st.button("✏️", key=f"ed_{tx['id']}"):
-                    st.session_state[f"editing_{tx['id']}"] = not st.session_state.get(f"editing_{tx['id']}", False)
-            with cd:
-                if st.button("🗑️", key=f"dt_{tx['id']}"):
-                    conn.execute("DELETE FROM transacoes WHERE id=?", (tx["id"],))
-                    conn.commit()
+        from st_aggrid import AgGrid, GridOptionsBuilder, ColumnsAutoSizeMode
+
+        # Formatar colunas para exibição
+        df_exibicao = txs.copy()
+        
+        # Juntar ícone com categoria e conta
+        df_exibicao['Categoria'] = df_exibicao.apply(lambda x: f"{x['ci'] or '📌'} {x['cat']}" if x['cat'] else "", axis=1)
+        df_exibicao['Conta'] = df_exibicao['conta']
+        df_exibicao['Data'] = df_exibicao['data']
+        df_exibicao['Descrição'] = df_exibicao['descricao']
+        df_exibicao['Valor'] = df_exibicao['valor']
+        df_exibicao['Tipo'] = df_exibicao.apply(lambda x: '🟢 Receita' if x['tipo'] == 'receita' else '🔴 Despesa', axis=1)
+        df_exibicao['Tags'] = df_exibicao['tags_str']
+        
+        colunas_mostrar = ['Data', 'Tipo', 'Descrição', 'Valor', 'Categoria', 'Conta', 'Tags']
+        df_grid = df_exibicao[colunas_mostrar]
+
+        gb = GridOptionsBuilder.from_dataframe(df_grid)
+        gb.configure_pagination(paginationAutoPageSize=False, paginationPageSize=15)
+        gb.configure_default_column(resizable=True, filterable=True, sortable=True)
+        gb.configure_column("Valor", type=["numericColumn", "numberColumnFilter"], valueFormatter="x.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})")
+        gb.configure_selection('single', use_checkbox=True)
+        
+        gridOptions = gb.build()
+
+        st.markdown("<style>.ag-theme-streamlit { font-family: 'Inter', sans-serif; }</style>", unsafe_allow_html=True)
+        
+        grid_response = AgGrid(
+            df_grid,
+            gridOptions=gridOptions,
+            update_mode='MODEL_CHANGED',
+            fit_columns_on_grid_load=True,
+            theme='streamlit',
+            columns_auto_size_mode=ColumnsAutoSizeMode.FIT_CONTENTS
+        )
+        
+        # Ações baseadas na seleção
+        selecionados = grid_response.get('selected_rows', [])
+        if selecionados and len(selecionados) > 0:
+            sel_idx = selecionados[0]['_selectedRowNodeInfo']['nodeRowIndex']
+            tx_id = int(txs.iloc[sel_idx]['id'])
+            
+            st.markdown("---")
+            st.markdown(f"**Ação para:** {selecionados[0]['Descrição']}")
+            col1, col2, _ = st.columns([1, 1, 4])
+            with col1:
+                if st.button("✏️ Editar", key="btn_edit", width='stretch'):
+                    st.session_state["tx_editando"] = tx_id
                     st.rerun()
-
-            # ── Edição inline (Fase 2.2) ──────────────────────────────
-            if st.session_state.get(f"editing_{tx['id']}", False):
-                with st.container():
-                    st.markdown(
-                        '<div style="background:rgba(78,140,255,0.05);border:1px solid rgba(78,140,255,0.15);'
-                        'border-radius:12px;padding:1rem;margin-bottom:0.5rem;">',
-                        unsafe_allow_html=True,
-                    )
-                    with st.form(f"edit_form_{tx['id']}"):
-                        e1, e2 = st.columns(2)
-                        with e1:
-                            ed_desc = st.text_input("Descrição", value=tx["descricao"], key=f"ed_desc_{tx['id']}")
-                        with e2:
-                            ed_valor = st.number_input(
-                                "Valor (R$)", min_value=0.01, value=float(tx["valor"]),
-                                step=10.0, format="%.2f", key=f"ed_val_{tx['id']}",
-                            )
-                        e3, e4 = st.columns(2)
-                        with e3:
-                            try:
-                                ed_data_val = datetime.strptime(tx["data"], "%Y-%m-%d").date()
-                            except Exception:
-                                ed_data_val = date.today()
-                            ed_data = st.date_input("Data", value=ed_data_val, key=f"ed_data_{tx['id']}")
-                        with e4:
-                            if not categorias_df.empty:
-                                cat_keys = list(co.keys())
-                                current_cat_label = None
-                                for label, cid in co.items():
-                                    if cid == conn.execute(
-                                        "SELECT categoria_id FROM transacoes WHERE id=?", (tx["id"],)
-                                    ).fetchone()[0]:
-                                        current_cat_label = label
-                                        break
-                                idx = cat_keys.index(current_cat_label) if current_cat_label in cat_keys else 0
-                                ed_cat = st.selectbox("Categoria", cat_keys, index=idx, key=f"ed_cat_{tx['id']}")
-                                ed_cat_id = co[ed_cat]
-                            else:
-                                ed_cat_id = None
-                        ed_obs = st.text_input("Observação", value=tx.get("observacao", "") or "", key=f"ed_obs_{tx['id']}")
-
-                        e_save, e_cancel = st.columns(2)
-                        with e_save:
-                            if st.form_submit_button("💾 Salvar", width='stretch', type="primary"):
-                                if ed_desc.strip() and ed_valor > 0 and ed_cat_id:
-                                    conn.execute(
-                                        "UPDATE transacoes SET descricao=?, valor=?, data=?, categoria_id=?, observacao=? WHERE id=?",
-                                        (ed_desc.strip(), ed_valor, ed_data.strftime("%Y-%m-%d"), ed_cat_id, ed_obs.strip(), tx["id"]),
-                                    )
-                                    conn.commit()
-                                    st.session_state[f"editing_{tx['id']}"] = False
-                                    st.success("✅ Atualizada!")
-                                    st.rerun()
-                        with e_cancel:
-                            if st.form_submit_button("❌ Cancelar", width='stretch'):
-                                st.session_state[f"editing_{tx['id']}"] = False
-                                st.rerun()
-                    st.markdown("</div>", unsafe_allow_html=True)
+            with col2:
+                if st.button("🗑️ Excluir", type="primary", key="btn_del", width='stretch'):
+                    conn.execute("DELETE FROM transacoes WHERE id=?", (tx_id,))
+                    conn.commit()
+                    st.success("Removida!")
+                    st.rerun()
+                    
+            if st.session_state.get("tx_editando") == tx_id:
+                # Formulário de edição rápida
+                st.info("Para editar, exclua e crie novamente (ou implementaremos edição em breve).")
+                if st.button("Cancelar Edição"):
+                    st.session_state["tx_editando"] = None
+                    st.rerun()

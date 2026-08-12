@@ -174,6 +174,18 @@ html, body { font-family: 'Inter', -apple-system, sans-serif !important; -webkit
     .metric-value { font-size: 1.15rem; }
     .app-header { padding: 1.2rem; }
     .app-header h1 { font-size: 1.3rem; }
+    .stAlert > div { border-radius: 12px; }
 }
 </style>
 """, unsafe_allow_html=True)
+
+    # ── Injeção de tags PWA (Fase 1.1) ──
+    st.html("""
+    <script>
+    // Acessa o head do documento principal
+    const head = document.head || window.parent.document.head;
+    if (head && !head.querySelector('meta[name="apple-mobile-web-app-capable"]')) {
+        head.insertAdjacentHTML('beforeend', '<meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><meta name="theme-color" content="#0b0e14"><link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/3135/3135715.png">');
+    }
+    </script>
+    """)

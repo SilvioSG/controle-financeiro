@@ -15,29 +15,62 @@ def render(ctx):
     prefixo_mes = ctx["prefixo_mes"]
     mes_sel = ctx["mes_sel"]
     ano_sel = ctx["ano_sel"]
+    saldo_total = ctx["saldo_total"]
 
+    # ── Alocação Base Zero (Fase 3.1) ─────────────────────────────────
     sec("📊", f"Orçamento de {MESES_PT[mes_sel]}")
     orc_data = get_orcamentos_mes(conn, mes_sel, ano_sel)
 
     if not orc_data.empty:
-        t_orc, t_gasto = 0, 0
+        t_orc, t_gasto, t_rolagem = 0, 0, 0
+        
+        # Calcular meses anteriores para rolagem
+        mes_ant = mes_sel - 1 if mes_sel > 1 else 12
+        ano_ant = ano_sel if mes_sel > 1 else ano_sel - 1
+        prefixo_ant = f"{ano_ant}-{mes_ant:02d}"
+        
+        orc_ant_data = get_orcamentos_mes(conn, mes_ant, ano_ant)
+        orc_ant_dict = {o["categoria_id"]: o["valor_limite"] for _, o in orc_ant_data.iterrows()} if not orc_ant_data.empty else {}
+        
         for _, o in orc_data.iterrows():
-            g = conn.execute(
+            cid = o["categoria_id"]
+            
+            # Gasto atual
+            g_atual = conn.execute(
                 "SELECT COALESCE(SUM(valor),0) FROM transacoes "
                 "WHERE tipo='despesa' AND categoria_id=? AND data LIKE ?",
-                (o["categoria_id"], f"{prefixo_mes}%"),
+                (cid, f"{prefixo_mes}%"),
             ).fetchone()[0]
-            pct = (g / o["valor_limite"] * 100) if o["valor_limite"] > 0 else 0
+            
+            # Rolagem (Fase 3.2)
+            valor_rolagem = 0
+            if cid in orc_ant_dict:
+                g_ant = conn.execute(
+                    "SELECT COALESCE(SUM(valor),0) FROM transacoes "
+                    "WHERE tipo='despesa' AND categoria_id=? AND data LIKE ?",
+                    (cid, f"{prefixo_ant}%"),
+                ).fetchone()[0]
+                sobra_ant = orc_ant_dict[cid] - g_ant
+                if sobra_ant > 0:
+                    valor_rolagem = sobra_ant
+            
+            limite_real = o["valor_limite"] + valor_rolagem
+            pct = (g_atual / limite_real * 100) if limite_real > 0 else 0
             bar_cls = "safe" if pct < 80 else ("warn" if pct < 100 else "over")
+            
             t_orc += o["valor_limite"]
-            t_gasto += g
+            t_rolagem += valor_rolagem
+            t_gasto += g_atual
+            
+            texto_rolagem = f" <span style='font-size:0.6rem; color:#00d4aa;'>(+{fmt(valor_rolagem)} rolado)</span>" if valor_rolagem > 0 else ""
+            
             co_col, cd_col = st.columns([12, 1])
             with co_col:
                 st.markdown(
                     f'<div class="budget-item"><div class="budget-header">'
                     f'<span class="budget-cat">{o["icone"]} {o["nome"]} '
                     f'{"✅" if pct < 80 else "⚠️" if pct < 100 else "🚨"}</span>'
-                    f'<span class="budget-vals">{fmt(g)} / {fmt(o["valor_limite"])} ({pct:.0f}%)</span>'
+                    f'<span class="budget-vals">{fmt(g_atual)} / {fmt(limite_real)}{texto_rolagem} ({pct:.0f}%)</span>'
                     f'</div><div class="budget-bar-bg"><div class="budget-bar-fill {bar_cls}" '
                     f'style="width:{min(pct, 100)}%;"></div></div></div>',
                     unsafe_allow_html=True,
@@ -48,19 +81,49 @@ def render(ctx):
                     conn.commit()
                     st.rerun()
 
-        rest = t_orc - t_gasto
-        st.markdown(
-            f'<div class="glass-card" style="margin-top:1rem;">'
-            f'<div style="display:flex;justify-content:space-around;text-align:center;">'
-            f'<div><div style="font-size:0.7rem;color:#8b95a5;text-transform:uppercase;">Orçado</div>'
-            f'<div style="font-size:1.1rem;font-weight:700;color:#4e8cff;">{fmt(t_orc)}</div></div>'
-            f'<div><div style="font-size:0.7rem;color:#8b95a5;text-transform:uppercase;">Gasto</div>'
-            f'<div style="font-size:1.1rem;font-weight:700;color:#ff4b6e;">{fmt(t_gasto)}</div></div>'
-            f'<div><div style="font-size:0.7rem;color:#8b95a5;text-transform:uppercase;">Restante</div>'
-            f'<div style="font-size:1.1rem;font-weight:700;color:{"#00d4aa" if rest >= 0 else "#ff4b6e"};">'
-            f'{fmt(rest)}</div></div></div></div>',
-            unsafe_allow_html=True,
-        )
+        rest_limite = (t_orc + t_rolagem) - t_gasto
+        
+        # Métrica Base Zero (Saldo Livre - Orçado)
+        saldo_livre_orcar = saldo_total - t_orc
+        cor_base_zero = "#00d4aa" if saldo_livre_orcar >= 0 else "#ff4b6e"
+        
+        st.markdown(f"""
+            <div class="glass-card" style="margin-top:1rem; border-left: 4px solid {cor_base_zero};">
+                <div style="font-size:0.75rem; color:#8b95a5; text-transform:uppercase; font-weight:700; margin-bottom:0.5rem;">🧠 Orçamento Base Zero</div>
+                <div style="display:flex; justify-content:space-between; flex-wrap:wrap; gap:1rem;">
+                    <div>
+                        <div style="font-size:0.7rem; color:#5a6478;">Total na Conta Corrente</div>
+                        <div style="font-size:1.2rem; font-weight:800; color:#f0f2f5;">{fmt(saldo_total)}</div>
+                    </div>
+                    <div>
+                        <div style="font-size:0.7rem; color:#5a6478;">Já Alocado em Potes</div>
+                        <div style="font-size:1.2rem; font-weight:800; color:#4e8cff;">{fmt(t_orc)}</div>
+                    </div>
+                    <div>
+                        <div style="font-size:0.7rem; color:#5a6478;">Ainda Sem Nome (Livre)</div>
+                        <div style="font-size:1.2rem; font-weight:800; color:{cor_base_zero};">{fmt(saldo_livre_orcar)}</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="glass-card" style="margin-top:0.5rem;">
+                <div style="display:flex; justify-content:space-around; text-align:center;">
+                    <div>
+                        <div style="font-size:0.7rem; color:#8b95a5; text-transform:uppercase;">Limite c/ Rolagem</div>
+                        <div style="font-size:1.1rem; font-weight:700; color:#4e8cff;">{fmt(t_orc + t_rolagem)}</div>
+                    </div>
+                    <div>
+                        <div style="font-size:0.7rem; color:#8b95a5; text-transform:uppercase;">Total Gasto</div>
+                        <div style="font-size:1.1rem; font-weight:700; color:#ff4b6e;">{fmt(t_gasto)}</div>
+                    </div>
+                    <div>
+                        <div style="font-size:0.7rem; color:#8b95a5; text-transform:uppercase;">Restante nos Potes</div>
+                        <div style="font-size:1.1rem; font-weight:700; color:{"#00d4aa" if rest_limite >= 0 else "#ff4b6e"};">{fmt(rest_limite)}</div>
+                    </div>
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
+
     else:
         st.info("Nenhum orçamento. Adicione abaixo.")
 
