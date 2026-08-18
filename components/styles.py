@@ -21,6 +21,10 @@ def inject_css():
     --text: #f0f2f5; --text2: #8b95a5; --text3: #5a6478;
 }
 html, body { font-family: 'Inter', -apple-system, sans-serif !important; -webkit-font-smoothing: antialiased; }
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
 
 .glass-card { background: var(--card); backdrop-filter: blur(20px); border: 1px solid var(--border); border-radius: 16px; padding: 1.4rem 1.5rem; transition: all 0.35s cubic-bezier(0.4,0,0.2,1); position: relative; overflow: hidden; }
 .glass-card::before { content:''; position: absolute; top:0; left:0; right:0; height:1px; background: linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent); }
@@ -35,7 +39,7 @@ html, body { font-family: 'Inter', -apple-system, sans-serif !important; -webkit
 .metric-icon.amber { background: linear-gradient(135deg, #f59e0b, #d97706); }
 .metric-icon.purple { background: linear-gradient(135deg, #a855f7, #8b3fd4); }
 .metric-label { font-size: 0.68rem; font-weight: 600; color: var(--text2); text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 0.25rem; }
-.metric-value { font-size: 1.45rem; font-weight: 800; margin: 0; line-height: 1.2; }
+.metric-value { font-size: 1.45rem; font-weight: 800; margin: 0; line-height: 1.2; white-space: nowrap; }
 .metric-badge { display: inline-block; padding: 0.15rem 0.55rem; border-radius: 20px; font-size: 0.62rem; font-weight: 600; margin-top: 0.35rem; letter-spacing: 0.3px; }
 .mv-green { color: var(--green); } .mb-green { background: var(--green-glow); color: var(--green); }
 .mv-red { color: var(--red); } .mb-red { background: var(--red-glow); color: var(--red); }

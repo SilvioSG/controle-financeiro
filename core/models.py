@@ -2,6 +2,7 @@
 core/models.py — Funções CRUD organizadas para acesso ao banco de dados.
 """
 import pandas as pd
+import streamlit as st
 from core.database import read_sql
 
 
@@ -133,3 +134,44 @@ def get_saldo_reserva(conn, saldo_conta_fn):
         "SELECT id FROM contas WHERE tipo = 'Reserva de Emergência'"
     ).fetchall()
     return sum(saldo_conta_fn(conn, r[0]) for r in contas_reserva)
+
+# ─── Consultas Agregadas de Alta Performance ─────────────────────────────────
+
+@st.cache_data(ttl=60, show_spinner=False)
+def get_agrupamento_diario_mes(_conn, prefixo):
+    """Retorna saldo diário agregado do mês em 1 única consulta."""
+    return _conn.execute(
+        "SELECT substr(data, 9, 2) as dia, "
+        "SUM(CASE WHEN tipo = 'receita' THEN valor ELSE 0 END) as rec, "
+        "SUM(CASE WHEN tipo = 'despesa' THEN valor ELSE 0 END) as desp "
+        "FROM transacoes WHERE data LIKE ? "
+        "GROUP BY substr(data, 9, 2)",
+        (f"{prefixo}%",)
+    ).fetchall()
+
+@st.cache_data(ttl=60, show_spinner=False)
+def get_agrupamento_mensal_ano(_conn, ano):
+    """Retorna o saldo mensal agregado do ano em 1 única consulta."""
+    return _conn.execute(
+        "SELECT substr(data, 6, 2) as mes, "
+        "SUM(CASE WHEN tipo = 'receita' THEN valor ELSE 0 END) as rec, "
+        "SUM(CASE WHEN tipo = 'despesa' THEN valor ELSE 0 END) as desp "
+        "FROM transacoes WHERE data LIKE ? "
+        "GROUP BY substr(data, 6, 2)",
+        (f"{ano}-%",)
+    ).fetchall()
+
+def get_gastos_categorias_mes(conn, prefixo):
+    """Retorna gastos agrupados por categoria no mês em 1 única consulta."""
+    rows = conn.execute(
+        "SELECT categoria_id, SUM(valor) FROM transacoes "
+        "WHERE tipo='despesa' AND data LIKE ? GROUP BY categoria_id",
+        (f"{prefixo}%",)
+    ).fetchall()
+    return {row[0]: row[1] for row in rows}
+
+def clear_cache_transacoes():
+    """Limpa o cache das funções cacheadas relacionadas a transações."""
+    get_agrupamento_diario_mes.clear()
+    get_agrupamento_mensal_ano.clear()
+

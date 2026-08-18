@@ -143,7 +143,9 @@ def render(ctx):
                             
                     aprender_categoria(conn, desc_tx, cat_id)
                     conn.commit()
-                    st.success(f"✅ Transação salva!" if qtd_parcelas == 1 else f"✅ Compra parcelada salva em {qtd_parcelas}x!")
+                    from core.models import clear_cache_transacoes
+                    clear_cache_transacoes()
+                    st.toast(f"✅ Transação salva!" if qtd_parcelas == 1 else f"✅ Compra parcelada salva em {qtd_parcelas}x!")
                     st.rerun()
                 except Exception as e:
                     st.error(f"Erro ao salvar: {e}")
@@ -187,78 +189,100 @@ def render(ctx):
                             )
                             inseridos += 1
                     conn.commit()
-                    st.success(f"✅ {inseridos} transações importadas com sucesso!")
+                    from core.models import clear_cache_transacoes
+                    clear_cache_transacoes()
+                    st.toast(f"✅ {inseridos} transações importadas com sucesso!")
                     st.rerun()
             except Exception as e:
                 st.error(f"Erro ao ler arquivo: {e}")
 
-    # ── Listagem (Com AgGrid) ─────────────────────────────────────────
+    # ── Listagem (Mobile First Feed) ──────────────────────────────────
     sec("🔍", f"Transações de {MESES_PT[mes_sel]}")
-    busca = st.text_input("Buscar...", placeholder="Filtrar por descrição...", key="busca_tx")
+    
+    # Barra de busca e controle
+    col_busca, col_gerenciar = st.columns([2, 1])
+    with col_busca:
+        busca = st.text_input("Buscar...", placeholder="Filtrar por descrição...", key="busca_tx", label_visibility="collapsed")
+    
     txs = get_transacoes_mes(conn, prefixo_mes, busca)
 
-    if txs.empty:
-        st.info("Nenhuma transação.")
-    else:
-        from st_aggrid import AgGrid, GridOptionsBuilder, ColumnsAutoSizeMode
-
-        # Formatar colunas para exibição
-        df_exibicao = txs.copy()
-        
-        # Juntar ícone com categoria e conta
-        df_exibicao['Categoria'] = df_exibicao.apply(lambda x: f"{x['ci'] or '📌'} {x['cat']}" if x['cat'] else "", axis=1)
-        df_exibicao['Conta'] = df_exibicao['conta']
-        df_exibicao['Data'] = df_exibicao['data']
-        df_exibicao['Descrição'] = df_exibicao['descricao']
-        df_exibicao['Valor'] = df_exibicao['valor']
-        df_exibicao['Tipo'] = df_exibicao.apply(lambda x: '🟢 Receita' if x['tipo'] == 'receita' else '🔴 Despesa', axis=1)
-        df_exibicao['Tags'] = df_exibicao['tags_str']
-        
-        colunas_mostrar = ['Data', 'Tipo', 'Descrição', 'Valor', 'Categoria', 'Conta', 'Tags']
-        df_grid = df_exibicao[colunas_mostrar]
-
-        gb = GridOptionsBuilder.from_dataframe(df_grid)
-        gb.configure_pagination(paginationAutoPageSize=False, paginationPageSize=15)
-        gb.configure_default_column(resizable=True, filterable=True, sortable=True)
-        gb.configure_column("Valor", type=["numericColumn", "numberColumnFilter"], valueFormatter="x.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})")
-        gb.configure_selection('single', use_checkbox=True)
-        
-        gridOptions = gb.build()
-
-        st.markdown("<style>.ag-theme-streamlit { font-family: 'Inter', sans-serif; }</style>", unsafe_allow_html=True)
-        
-        grid_response = AgGrid(
-            df_grid,
-            gridOptions=gridOptions,
-            update_mode='MODEL_CHANGED',
-            fit_columns_on_grid_load=True,
-            theme='streamlit',
-            columns_auto_size_mode=ColumnsAutoSizeMode.FIT_CONTENTS
-        )
-        
-        # Ações baseadas na seleção
-        selecionados = grid_response.get('selected_rows', [])
-        if selecionados and len(selecionados) > 0:
-            sel_idx = selecionados[0]['_selectedRowNodeInfo']['nodeRowIndex']
-            tx_id = int(txs.iloc[sel_idx]['id'])
+    with col_gerenciar:
+        if txs.empty:
+            tx_opcoes = []
+        else:
+            tx_opcoes = txs.to_dict('records')
             
-            st.markdown("---")
-            st.markdown(f"**Ação para:** {selecionados[0]['Descrição']}")
-            col1, col2, _ = st.columns([1, 1, 4])
-            with col1:
-                if st.button("✏️ Editar", key="btn_edit", width='stretch'):
-                    st.session_state["tx_editando"] = tx_id
-                    st.rerun()
-            with col2:
-                if st.button("🗑️ Excluir", type="primary", key="btn_del", width='stretch'):
-                    conn.execute("DELETE FROM transacoes WHERE id=?", (tx_id,))
-                    conn.commit()
-                    st.success("Removida!")
-                    st.rerun()
-                    
-            if st.session_state.get("tx_editando") == tx_id:
-                # Formulário de edição rápida
-                st.info("Para editar, exclua e crie novamente (ou implementaremos edição em breve).")
-                if st.button("Cancelar Edição"):
-                    st.session_state["tx_editando"] = None
-                    st.rerun()
+        tx_sel_id = st.selectbox(
+            "Gerenciar", 
+            options=[None] + [t['id'] for t in tx_opcoes],
+            format_func=lambda x: "✏️ Editar / Excluir" if x is None else f"{next(t['descricao'] for t in tx_opcoes if t['id'] == x)} ({next(fmt(t['valor']) for t in tx_opcoes if t['id'] == x)})",
+            label_visibility="collapsed"
+        )
+    
+    if tx_sel_id is not None:
+        tx_sel = next(t for t in tx_opcoes if t['id'] == tx_sel_id)
+        st.markdown(f"**Ação para:** {tx_sel['descricao']} - {fmt(tx_sel['valor'])}")
+        c1, c2 = st.columns(2)
+        if c1.button("🗑️ Excluir Transação", type="primary", use_container_width=True):
+             conn.execute("DELETE FROM transacoes WHERE id=?", (tx_sel_id,))
+             conn.commit()
+             from core.models import clear_cache_transacoes
+             clear_cache_transacoes()
+             st.toast("Removida com sucesso!")
+             st.rerun()
+        if c2.button("✏️ Editar Transação", use_container_width=True):
+             st.info("Para editar, exclua a transação e crie novamente (a funcionalidade de edição completa será adicionada em breve).")
+
+    if txs.empty:
+        st.info("Nenhuma transação encontrada.")
+    else:
+        # Totalizador visual
+        tot_rec = txs[txs['tipo'] == 'receita']['valor'].sum()
+        tot_desp = txs[txs['tipo'] == 'despesa']['valor'].sum()
+        tot_saldo = tot_rec - tot_desp
+        
+        st.markdown(f"""
+        <div style="display:flex; justify-content:space-around; padding: 0.8rem; background: linear-gradient(135deg, rgba(22,27,38,0.7), rgba(11,14,20,0.8)); border-radius: 12px; margin-bottom: 1.5rem; border: 1px solid rgba(255,255,255,0.03);">
+            <div style="text-align:center;">
+                <div style="font-size:0.65rem; color:#8b95a5; text-transform:uppercase;">Receitas</div>
+                <div style="font-weight:700; color:#00d4aa;">{fmt(tot_rec)}</div>
+            </div>
+            <div style="text-align:center;">
+                <div style="font-size:0.65rem; color:#8b95a5; text-transform:uppercase;">Despesas</div>
+                <div style="font-weight:700; color:#ff4b6e;">{fmt(tot_desp)}</div>
+            </div>
+            <div style="text-align:center;">
+                <div style="font-size:0.65rem; color:#8b95a5; text-transform:uppercase;">Balanço</div>
+                <div style="font-weight:700; color:{'#00d4aa' if tot_saldo >= 0 else '#ff4b6e'};">{fmt(tot_saldo)}</div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Agrupar por data (dia) para o Feed
+        txs['data_formatada'] = pd.to_datetime(txs['data']).dt.strftime('%Y-%m-%d')
+        datas_unicas = sorted(txs['data_formatada'].unique(), reverse=True)
+
+        html_feed = "<div class='tx-feed-container'>"
+        for dt in datas_unicas:
+            dt_obj = datetime.strptime(dt, '%Y-%m-%d')
+            mes_nome = MESES_PT[dt_obj.month][:3].upper()
+            cabecalho_dia = f"{dt_obj.day:02d} DE {mes_nome}"
+            
+            # Adiciona o cabeçalho do dia
+            html_feed += f'<div class="day-header">{cabecalho_dia}</div>'
+
+            txs_dia = txs[txs['data_formatada'] == dt]
+            for _, row in txs_dia.iterrows():
+                is_inc = row['tipo'] == 'receita'
+                bg_class = 'inc-bg' if is_inc else 'exp-bg'
+                amount_class = 'inc' if is_inc else 'exp'
+                sinal = "+" if is_inc else ""
+                icone = row['ci'] if pd.notna(row['ci']) else '📌'
+                cat_nome = row['cat'] if pd.notna(row['cat']) else 'Sem categoria'
+                conta_nome = row['conta'] if pd.notna(row['conta']) else 'Sem conta'
+                
+                # HTML minificado em uma única linha para evitar o parser de Markdown do Streamlit
+                html_feed += f'<div class="tx-item"><div class="tx-left"><div class="tx-cat-icon {bg_class}">{icone}</div><div><div class="tx-desc">{html.escape(str(row["descricao"]))}</div><div class="tx-meta">{html.escape(str(conta_nome))} &bull; {html.escape(str(cat_nome))}</div></div></div><div class="tx-amount {amount_class}">{sinal} {fmt(row["valor"])}</div></div>'
+        
+        html_feed += "</div>"
+        st.html(html_feed)

@@ -5,7 +5,7 @@ import streamlit as st
 import pandas as pd
 
 from core.utils import fmt, MESES_PT
-from core.models import get_orcamentos_mes, get_categorias_despesa
+from core.models import get_orcamentos_mes, get_categorias_despesa, get_gastos_categorias_mes
 from components.cards import sec
 
 
@@ -32,24 +32,20 @@ def render(ctx):
         orc_ant_data = get_orcamentos_mes(conn, mes_ant, ano_ant)
         orc_ant_dict = {o["categoria_id"]: o["valor_limite"] for _, o in orc_ant_data.iterrows()} if not orc_ant_data.empty else {}
         
+        # Pré-calcular gastos do mês atual e do mês anterior
+        gastos_atual_dict = get_gastos_categorias_mes(conn, prefixo_mes)
+        gastos_ant_dict = get_gastos_categorias_mes(conn, prefixo_ant)
+        
         for _, o in orc_data.iterrows():
             cid = o["categoria_id"]
             
             # Gasto atual
-            g_atual = conn.execute(
-                "SELECT COALESCE(SUM(valor),0) FROM transacoes "
-                "WHERE tipo='despesa' AND categoria_id=? AND data LIKE ?",
-                (cid, f"{prefixo_mes}%"),
-            ).fetchone()[0]
+            g_atual = gastos_atual_dict.get(cid, 0)
             
             # Rolagem (Fase 3.2)
             valor_rolagem = 0
             if cid in orc_ant_dict:
-                g_ant = conn.execute(
-                    "SELECT COALESCE(SUM(valor),0) FROM transacoes "
-                    "WHERE tipo='despesa' AND categoria_id=? AND data LIKE ?",
-                    (cid, f"{prefixo_ant}%"),
-                ).fetchone()[0]
+                g_ant = gastos_ant_dict.get(cid, 0)
                 sobra_ant = orc_ant_dict[cid] - g_ant
                 if sobra_ant > 0:
                     valor_rolagem = sobra_ant

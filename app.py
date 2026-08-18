@@ -171,11 +171,38 @@ if total_txs == 0:
         </div>
     """, unsafe_allow_html=True)
 
-# ─── Abas ────────────────────────────────────────────────────────────────────
-tab_dash, tab_insights, tab_trans, tab_orc, tab_invest, tab_cartoes, tab_contas, tab_cats, tab_metas = st.tabs(
-    ["🏠 Dashboard", "💡 Insights", "💰 Transações", "📊 Orçamento",
-     "💹 Investimentos", "💳 Cartões", "🏦 Contas", "📁 Categorias", "🛡️ Metas"]
+# ─── Abas (Lazy Loading) ───────────────────────────────────────────────────────
+opcoes_abas = {
+    "🏠 Dashboard": "dashboard",
+    "💡 Insights": "insights",
+    "💰 Transações": "transacoes",
+    "📊 Orçamento": "orcamento",
+    "💹 Investimentos": "investimentos",
+    "💳 Cartões": "cartoes",
+    "🏦 Contas": "contas",
+    "📁 Categorias": "categorias",
+    "🛡️ Metas": "metas"
+}
+
+if "aba_ativa" not in st.session_state:
+    st.session_state["aba_ativa"] = list(opcoes_abas.keys())[0]
+
+# O st.pills permite seleção igual a abas
+aba_selecionada = st.pills(
+    "Navegação", 
+    options=list(opcoes_abas.keys()),
+    default=st.session_state["aba_ativa"],
+    label_visibility="collapsed"
 )
+
+# Se o usuário desselecionar (clicar no pill já ativo), o Streamlit retorna None.
+# Precisamos manter a seleção anterior.
+if aba_selecionada is None:
+    aba_selecionada = st.session_state["aba_ativa"]
+else:
+    st.session_state["aba_ativa"] = aba_selecionada
+
+st.markdown("---")
 
 from tabs.dashboard import render as render_dashboard
 from tabs.insights import render as render_insights
@@ -187,29 +214,21 @@ from tabs.contas import render as render_contas
 from tabs.categorias import render as render_categorias
 from tabs.metas import render as render_metas
 
-with tab_dash:
+if opcoes_abas[aba_selecionada] == "dashboard":
     render_dashboard(ctx)
-
-with tab_insights:
+elif opcoes_abas[aba_selecionada] == "insights":
     render_insights(ctx)
-
-with tab_trans:
+elif opcoes_abas[aba_selecionada] == "transacoes":
     render_transacoes(ctx)
-
-with tab_orc:
+elif opcoes_abas[aba_selecionada] == "orcamento":
     render_orcamento(ctx)
-
-with tab_invest:
+elif opcoes_abas[aba_selecionada] == "investimentos":
     render_investimentos(ctx)
-
-with tab_cartoes:
+elif opcoes_abas[aba_selecionada] == "cartoes":
     render_cartoes(ctx)
-
-with tab_contas:
+elif opcoes_abas[aba_selecionada] == "contas":
     render_contas(ctx)
-
-with tab_cats:
+elif opcoes_abas[aba_selecionada] == "categorias":
     render_categorias(ctx)
-
-with tab_metas:
+elif opcoes_abas[aba_selecionada] == "metas":
     render_metas(ctx)

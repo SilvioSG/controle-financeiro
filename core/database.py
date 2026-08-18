@@ -93,6 +93,9 @@ def get_connection():
     # Fallback: SQLite local
     conn = sqlite3.connect("financas.db", check_same_thread=False)
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    conn.execute("PRAGMA cache_size=-64000")
+    conn.execute("PRAGMA temp_store=MEMORY")
     conn.execute("PRAGMA foreign_keys=ON")
     return DBConnection(conn, is_postgres=False)
 
@@ -216,6 +219,11 @@ def _init_db_sqlite(conn):
         FOREIGN KEY (conta_id) REFERENCES contas(id)
     )""")
 
+    c.execute("CREATE INDEX IF NOT EXISTS idx_tx_data_tipo ON transacoes (data, tipo)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_tx_conta ON transacoes (conta_id)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_tx_cat ON transacoes (categoria_id)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_tx_rec ON transacoes (recorrente, data)")
+
     conn.commit()
 
 
@@ -303,6 +311,11 @@ def _init_db_postgres(conn):
         icone TEXT DEFAULT '⚡',
         tipo TEXT DEFAULT 'despesa'
     )""")
+
+    c.execute("CREATE INDEX IF NOT EXISTS idx_tx_data_tipo_pg ON transacoes (data, tipo)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_tx_conta_pg ON transacoes (conta_id)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_tx_cat_pg ON transacoes (categoria_id)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_tx_rec_pg ON transacoes (recorrente, data)")
 
     conn.commit()
 
