@@ -222,6 +222,12 @@ def render(ctx):
             if d not in tx_futuras_dict: tx_futuras_dict[d] = 0
             tx_futuras_dict[d] += v if t == 'receita' else -v
             
+        recorrentes = conn.execute(
+            "SELECT t.id, t.descricao, t.valor, t.data, c.icone "
+            "FROM transacoes t LEFT JOIN categorias c ON t.categoria_id = c.id "
+            "WHERE t.recorrente=1 AND t.tipo='despesa'"
+        ).fetchall()
+
         for dia_data in datas_futuras:
             str_data = dia_data.strftime("%Y-%m-%d")
             
