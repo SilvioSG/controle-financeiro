@@ -28,7 +28,7 @@ new_content += """
 """
 
 def indent(text):
-    return "\n".join("        " + line if line.strip() else line for line in text.split("\n"))
+    return "\n ".join("        " + line if line.strip() else line for line in text.split("\n"))
 
 def extra_indent(text):
     return "\n".join("    " + line if line.strip() else line for line in text.split("\n"))
