@@ -25,11 +25,8 @@ class DBConnection:
 
     def _set_rls(self, cur):
         user_id = st.session_state.get("user_id")
-        if self.is_postgres:
-            if user_id:
-                cur.execute("SELECT set_config('request.jwt.claim.sub', %s, false)", (str(user_id),))
-            else:
-                cur.execute("SELECT set_config('request.jwt.claim.sub', '', false)")
+        if user_id and self.is_postgres:
+            cur.execute("SELECT set_config('request.jwt.claim.sub', %s, false)", (str(user_id),))
 
     def execute(self, sql, params=None):
         with self.lock:
