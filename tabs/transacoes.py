@@ -44,7 +44,10 @@ def _processar_recorrentes(conn, prefixo_mes):
             )
             conn.execute(
                 "INSERT OR IGNORE INTO recorrentes_log (prefixo_mes, transacao_origem_id, processado_em) "
-                "VALUES (?,?,?)",
+                "VALUES (?,?,?)"
+                if not getattr(conn, 'is_postgres', False) else
+                "INSERT INTO recorrentes_log (prefixo_mes, transacao_origem_id, processado_em) "
+                "VALUES (?,?,?) ON CONFLICT DO NOTHING",
                 (prefixo_mes, r[0], datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
             )
             count += 1
