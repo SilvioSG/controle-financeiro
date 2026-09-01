@@ -50,3 +50,36 @@ def get_pref(m, a):
         m += 12
         a -= 1
     return f"{a}-{m:02d}", m, a
+
+
+def processar_tags(conn, transacao_id, tags_str):
+    """Processa string de tags separadas por vírgula: cria tags e associa à transação."""
+    tags = [t.strip().lower() for t in tags_str.split(",") if t.strip()]
+    for tag_nome in tags:
+        # Buscar ou criar a tag
+        existing = conn.execute("SELECT id FROM tags WHERE nome = ?", (tag_nome,)).fetchone()
+        if existing:
+            tag_id = existing[0]
+        else:
+            if getattr(conn, 'is_postgres', False):
+                tag_id = conn.execute(
+                    "INSERT INTO tags (nome) VALUES (?) RETURNING id", (tag_nome,)
+                ).fetchone()[0]
+            else:
+                cur = conn.execute("INSERT INTO tags (nome) VALUES (?)", (tag_nome,))
+                tag_id = cur.lastrowid
+
+        # Associar tag à transação (ignorar se já existir)
+        try:
+            if getattr(conn, 'is_postgres', False):
+                conn.execute(
+                    "INSERT INTO transacao_tags (transacao_id, tag_id) VALUES (?,?) ON CONFLICT DO NOTHING",
+                    (transacao_id, tag_id),
+                )
+            else:
+                conn.execute(
+                    "INSERT OR IGNORE INTO transacao_tags (transacao_id, tag_id) VALUES (?,?)",
+                    (transacao_id, tag_id),
+                )
+        except Exception:
+            pass

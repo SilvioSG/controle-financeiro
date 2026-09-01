@@ -132,13 +132,22 @@ def render(ctx):
                         data_atual = (data_tx + relativedelta(months=i)).strftime("%Y-%m-%d")
                         rec_val = 1 if (recorrente_tx and qtd_parcelas == 1) else 0 # Não pode ser parcelado E recorrente infinito ao mesmo tempo
                         
-                        cursor = conn.execute(
-                            "INSERT INTO transacoes (tipo,descricao,valor,data,categoria_id,conta_id,recorrente,observacao) "
-                            "VALUES (?,?,?,?,?,?,?,?)",
-                            (tipo_tx, desc_atual, valor_atual, data_atual,
-                             cat_id, conta_id, rec_val, obs_tx.strip()),
-                        )
-                        tx_id = cursor.lastrowid
+                        if getattr(conn, 'is_postgres', False):
+                            cursor = conn.execute(
+                                "INSERT INTO transacoes (tipo,descricao,valor,data,categoria_id,conta_id,recorrente,observacao) "
+                                "VALUES (?,?,?,?,?,?,?,?) RETURNING id",
+                                (tipo_tx, desc_atual, valor_atual, data_atual,
+                                 cat_id, conta_id, rec_val, obs_tx.strip()),
+                            )
+                            tx_id = cursor.fetchone()[0]
+                        else:
+                            cursor = conn.execute(
+                                "INSERT INTO transacoes (tipo,descricao,valor,data,categoria_id,conta_id,recorrente,observacao) "
+                                "VALUES (?,?,?,?,?,?,?,?)",
+                                (tipo_tx, desc_atual, valor_atual, data_atual,
+                                 cat_id, conta_id, rec_val, obs_tx.strip()),
+                            )
+                            tx_id = cursor.lastrowid
                         
                         if tags_tx.strip():
                             from core.utils import processar_tags
