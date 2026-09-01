@@ -25,8 +25,11 @@ class DBConnection:
 
     def _set_rls(self, cur):
         user_id = st.session_state.get("user_id")
-        if user_id and self.is_postgres:
-            cur.execute("SELECT set_config('request.jwt.claim.sub', %s, false)", (str(user_id),))
+        if self.is_postgres:
+            if user_id:
+                cur.execute("SELECT set_config('request.jwt.claim.sub', %s, false)", (str(user_id),))
+            else:
+                cur.execute("SELECT set_config('request.jwt.claim.sub', '', false)")
 
     def execute(self, sql, params=None):
         with self.lock:
@@ -70,8 +73,13 @@ def read_sql(sql, conn, params=None):
     with warnings.catch_warnings():
         warnings.simplefilter('ignore', UserWarning)
         if params:
-            return pd.read_sql_query(sql, conn, params=params)
-        return pd.read_sql_query(sql, conn)
+            df = pd.read_sql_query(sql, conn, params=params)
+        else:
+            df = pd.read_sql_query(sql, conn)
+        
+        if getattr(conn, 'is_postgres', False):
+            conn.commit()
+        return df
 
 
 # ─── Conexão ──────────────────────────────────────────────────────────────────
