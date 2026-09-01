@@ -70,13 +70,8 @@ def read_sql(sql, conn, params=None):
     with warnings.catch_warnings():
         warnings.simplefilter('ignore', UserWarning)
         if params:
-            df = pd.read_sql_query(sql, conn, params=params)
-        else:
-            df = pd.read_sql_query(sql, conn)
-        
-        if getattr(conn, 'is_postgres', False):
-            conn.commit()
-        return df
+            return pd.read_sql_query(sql, conn, params=params)
+        return pd.read_sql_query(sql, conn)
 
 
 # ─── Conexão ──────────────────────────────────────────────────────────────────
