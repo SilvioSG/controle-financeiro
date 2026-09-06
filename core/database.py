@@ -274,10 +274,12 @@ def _init_db_postgres(conn):
 
     # Migração: Adicionar coluna se não existir (Postgres)
     try:
+        c.execute("SAVEPOINT migration_sp")
         c.execute("ALTER TABLE transacoes ADD COLUMN IF NOT EXISTS is_transferencia INTEGER DEFAULT 0")
         c.execute("UPDATE transacoes SET is_transferencia = 1 WHERE descricao LIKE 'Transferência%%' AND is_transferencia = 0")
+        c.execute("RELEASE SAVEPOINT migration_sp")
     except Exception:
-        pass
+        c.execute("ROLLBACK TO SAVEPOINT migration_sp")
 
     c.execute("""CREATE TABLE IF NOT EXISTS metas (
         id SERIAL PRIMARY KEY,

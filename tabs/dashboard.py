@@ -98,7 +98,7 @@ def render(ctx):
         <div style="flex: 1 1 180px; min-width: 160px;">{metric_card("💳","red","Despesas",fmt(desp_mes),"mv-red","Saídas","mb-red")}</div>
         <div style="flex: 1 1 180px; min-width: 160px;">{metric_card("📋","amber","Simples Nacional",fmt(simples_mes),"mv-amber","6% s/ receita","mb-amber")}</div>
         <div style="flex: 1 1 180px; min-width: 160px;">{metric_card("📊","purple","Balanço Líquido",fmt(balanco_mes),b_cls,"Superávit" if balanco_mes>=0 else "Déficit",b_bdg)}</div>
-        <div style="flex: 1 1 180px; min-width: 160px;">{metric_card("🏦","blue","Saldo Disponível",fmt(saldo_total),"mv-blue","Livre para uso","mb-blue")}</div>
+        <div style="flex: 1 1 180px; min-width: 160px;">{metric_card("💰","blue","Saldo do Mês",fmt(saldo_total),"mv-blue","Livre este mês","mb-blue")}</div>
     </div>
     """
     st.markdown(html_cards, unsafe_allow_html=True)

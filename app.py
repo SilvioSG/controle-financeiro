@@ -68,26 +68,14 @@ with st.sidebar:
         prefixo_mes = f"{ano_sel}-{mes_sel:02d}"
         dias_mes = calendar.monthrange(ano_sel, mes_sel)[1]
 
-        # Busca todos os saldos em UMA ÚNICA query (evita N+1 no banco de dados em nuvem)
-        saldos_db = conn.execute("""
-            SELECT 
-                c.tipo,
+        # Saldo de todas as reservas
+        saldo_reserva = conn.execute("""
+            SELECT COALESCE(SUM(
                 COALESCE(c.saldo_inicial, 0) +
                 COALESCE((SELECT SUM(valor) FROM transacoes WHERE conta_id = c.id AND tipo='receita'), 0) -
                 COALESCE((SELECT SUM(valor) FROM transacoes WHERE conta_id = c.id AND tipo='despesa'), 0)
-            FROM contas c
-        """).fetchall()
-
-        # Saldo das contas normais (livre para gasto)
-        saldo_total = sum(s[1] for s in saldos_db if s[0] not in ('Reserva de Emergência', 'Cartão de Crédito'))
-
-        # Saldo de todas as reservas
-        saldo_reserva = sum(s[1] for s in saldos_db if s[0] == 'Reserva de Emergência')
-
-        rec_total_todas = conn.execute(
-            "SELECT COALESCE(SUM(valor),0) FROM transacoes WHERE tipo='receita' AND COALESCE(is_transferencia,0)=0"
-        ).fetchone()[0]
-        saldo_total -= rec_total_todas * TAXA_SIMPLES
+            ), 0) FROM contas c WHERE c.tipo = 'Reserva de Emergência'
+        """).fetchone()[0]
 
         rec_mes = conn.execute(
             "SELECT COALESCE(SUM(valor),0) FROM transacoes WHERE tipo='receita' AND COALESCE(is_transferencia,0)=0 AND data LIKE ?",
@@ -101,10 +89,8 @@ with st.sidebar:
         balanco_mes = rec_mes - desp_mes - simples_mes
 
         cor_balanco = "#00d4aa" if balanco_mes >= 0 else "#ff4b6e"
-        cor_saldo = "#00d4aa" if saldo_total >= 0 else "#ff4b6e"
         st.markdown(f"""
             <div class="sidebar-stat"><span class="ss-label">💰 Saldo do Mês</span><span class="ss-value" style="color:{cor_balanco}">{fmt(balanco_mes)}</span></div>
-            <div class="sidebar-stat"><span class="ss-label">🏦 Patrimônio Total</span><span class="ss-value" style="color:{cor_saldo};font-size:0.85rem;opacity:0.7">{fmt(saldo_total + saldo_reserva)}</span></div>
             <div class="sidebar-stat"><span class="ss-label">🛡️ Reserva</span><span class="ss-value" style="color:#4e8cff">{fmt(saldo_reserva)}</span></div>
             <div class="sidebar-stat"><span class="ss-label">📈 Receitas</span><span class="ss-value" style="color:#00d4aa">{fmt(rec_mes)}</span></div>
             <div class="sidebar-stat"><span class="ss-label">📉 Despesas</span><span class="ss-value" style="color:#ff4b6e">{fmt(desp_mes)}</span></div>
@@ -159,7 +145,7 @@ ctx = {
     "desp_mes": desp_mes,
     "simples_mes": simples_mes,
     "balanco_mes": balanco_mes,
-    "saldo_total": saldo_total,
+    "saldo_total": balanco_mes,
     "saldo_reserva": saldo_reserva,
     "score": score,
     "score_cor": score_cor,
