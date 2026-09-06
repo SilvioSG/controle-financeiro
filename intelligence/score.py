@@ -53,7 +53,7 @@ def calcular_score(conn, rec, desp, simples, prefixo, mes, ano, saldo_reserva=0)
     conds = " OR ".join(["data LIKE ?"] * 3)
     params = tuple(f"{p}%" for p in prefs)
     g_3m_data = conn.execute(
-        f"SELECT SUBSTR(data, 1, 7), SUM(valor) FROM transacoes WHERE tipo='despesa' AND ({conds}) GROUP BY SUBSTR(data, 1, 7)",
+        f"SELECT SUBSTR(data, 1, 7), SUM(valor) FROM transacoes WHERE tipo='despesa' AND COALESCE(is_transferencia,0)=0 AND ({conds}) GROUP BY SUBSTR(data, 1, 7)",
         params
     ).fetchall()
     gastos_dict_3m = {r[0]: r[1] for r in g_3m_data}

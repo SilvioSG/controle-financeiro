@@ -3,7 +3,6 @@ tabs/investimentos.py — Aba de Investimentos e simulador.
 """
 import streamlit as st
 import plotly.graph_objects as go
-import google.genai as genai
 
 from core.utils import fmt, PLOTLY_LAYOUT
 from components.cards import sec
@@ -34,6 +33,7 @@ def render(ctx):
             else:
                 with st.spinner("A IA está analisando suas finanças. Isso pode levar alguns segundos..."):
                     try:
+                        import google.genai as genai
                         client = genai.Client(api_key=api_key)
 
                         metas_ativas = conn.execute("SELECT nome, valor_meta, valor_atual FROM metas").fetchall()

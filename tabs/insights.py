@@ -118,11 +118,11 @@ def render(ctx):
     sec("📊", "Comparativo com Mês Anterior")
     p_ant, m_ant, a_ant = get_pref(mes_sel - 1, ano_sel)
     rec_ant = conn.execute(
-        "SELECT COALESCE(SUM(valor),0) FROM transacoes WHERE tipo='receita' AND data LIKE ?",
+        "SELECT COALESCE(SUM(valor),0) FROM transacoes WHERE tipo='receita' AND COALESCE(is_transferencia,0)=0 AND data LIKE ?",
         (f"{p_ant}%",),
     ).fetchone()[0]
     desp_ant = conn.execute(
-        "SELECT COALESCE(SUM(valor),0) FROM transacoes WHERE tipo='despesa' AND data LIKE ?",
+        "SELECT COALESCE(SUM(valor),0) FROM transacoes WHERE tipo='despesa' AND COALESCE(is_transferencia,0)=0 AND data LIKE ?",
         (f"{p_ant}%",),
     ).fetchone()[0]
 
@@ -299,8 +299,8 @@ def render(ctx):
     sobras_3m = []
     for i in range(1, 4):
         p_ant, m_ant, a_ant = get_pref(mes_sel - i, ano_sel)
-        r_ant = conn.execute("SELECT COALESCE(SUM(valor),0) FROM transacoes WHERE tipo='receita' AND data LIKE ?", (f"{p_ant}%",)).fetchone()[0]
-        d_ant = conn.execute("SELECT COALESCE(SUM(valor),0) FROM transacoes WHERE tipo='despesa' AND data LIKE ?", (f"{p_ant}%",)).fetchone()[0]
+        r_ant = conn.execute("SELECT COALESCE(SUM(valor),0) FROM transacoes WHERE tipo='receita' AND COALESCE(is_transferencia,0)=0 AND data LIKE ?", (f"{p_ant}%",)).fetchone()[0]
+        d_ant = conn.execute("SELECT COALESCE(SUM(valor),0) FROM transacoes WHERE tipo='despesa' AND COALESCE(is_transferencia,0)=0 AND data LIKE ?", (f"{p_ant}%",)).fetchone()[0]
         s_ant = r_ant * TAXA_SIMPLES
         sobras_3m.append(max(0, r_ant - d_ant - s_ant))
     
@@ -312,9 +312,10 @@ def render(ctx):
         proj_otimista = []
         proj_pessimista = []
         
-        acumulado = saldo_total
-        acumulado_ot = saldo_total
-        acumulado_pe = saldo_total
+        patrimonio_base = saldo_total + ctx.get("saldo_reserva", 0)
+        acumulado = patrimonio_base
+        acumulado_ot = patrimonio_base
+        acumulado_pe = patrimonio_base
         
         # Taxa Selic aprox 1% a.m para a projeção
         taxa = 0.01
@@ -374,12 +375,12 @@ def render(ctx):
             hovertemplate='%{x}<br>Pessimista: R$ %{y:,.2f}<extra></extra>'
         ))
 
+        proj_layout = {**PLOTLY_LAYOUT, "legend": dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, bgcolor="rgba(0,0,0,0)", font=dict(color="#8b95a5", size=11))}
         fig_proj.update_layout(
-            **PLOTLY_LAYOUT, height=320,
+            **proj_layout, height=320,
             xaxis=dict(showgrid=False),
             yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.03)"),
             hovermode="x unified",
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
         )
         st.plotly_chart(fig_proj, key="proj_chart")
         

@@ -5,6 +5,12 @@ Entrypoint principal do aplicativo Streamlit.
 import streamlit as st
 import calendar
 from datetime import date
+import sys
+import asyncio
+
+# Fix para erro no Windows: ConnectionResetError [WinError 10054] do Tornado/Streamlit
+if sys.platform == 'win32':
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 from core.database import get_connection, init_db, seed_categorias, seed_conta_padrao, saldo_conta
 from core.utils import fmt, MESES_PT, TAXA_SIMPLES
@@ -56,7 +62,7 @@ with st.sidebar:
         with col_m:
             mes_sel = st.selectbox("Mês", range(1, 13), index=hoje.month - 1, format_func=lambda x: MESES_PT[x])
         with col_a:
-            ano_sel = st.selectbox("Ano", range(2020, 2031), index=hoje.year - 2020)
+            ano_sel = st.selectbox("Ano", range(2020, hoje.year + 5), index=hoje.year - 2020)
         st.markdown("---")
 
         prefixo_mes = f"{ano_sel}-{mes_sel:02d}"
@@ -79,16 +85,16 @@ with st.sidebar:
         saldo_reserva = sum(s[1] for s in saldos_db if s[0] == 'Reserva de Emergência')
 
         rec_total_todas = conn.execute(
-            "SELECT COALESCE(SUM(valor),0) FROM transacoes WHERE tipo='receita'"
+            "SELECT COALESCE(SUM(valor),0) FROM transacoes WHERE tipo='receita' AND COALESCE(is_transferencia,0)=0"
         ).fetchone()[0]
         saldo_total -= rec_total_todas * TAXA_SIMPLES
 
         rec_mes = conn.execute(
-            "SELECT COALESCE(SUM(valor),0) FROM transacoes WHERE tipo='receita' AND data LIKE ?",
+            "SELECT COALESCE(SUM(valor),0) FROM transacoes WHERE tipo='receita' AND COALESCE(is_transferencia,0)=0 AND data LIKE ?",
             (f"{prefixo_mes}%",),
         ).fetchone()[0]
         desp_mes = conn.execute(
-            "SELECT COALESCE(SUM(valor),0) FROM transacoes WHERE tipo='despesa' AND data LIKE ?",
+            "SELECT COALESCE(SUM(valor),0) FROM transacoes WHERE tipo='despesa' AND COALESCE(is_transferencia,0)=0 AND data LIKE ?",
             (f"{prefixo_mes}%",),
         ).fetchone()[0]
         simples_mes = rec_mes * TAXA_SIMPLES

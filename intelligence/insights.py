@@ -43,19 +43,20 @@ def gerar_insights(conn, rec, desp, simples, prefixo, mes, ano, saldo_total):
             f"<strong>{fmt(reserva_ideal)}</strong> (6x suas despesas mensais).",
         ))
 
-    # Orçamentos estourados
+    # Orçamentos estourados (otimizado: 2 queries ao invés de N+1)
     orcs = conn.execute("""
-        SELECT c.nome, c.icone, o.valor_limite FROM orcamentos o
+        SELECT c.nome, c.icone, o.valor_limite, o.categoria_id FROM orcamentos o
         JOIN categorias c ON o.categoria_id = c.id WHERE o.mes=? AND o.ano=?
     """, (mes, ano)).fetchall()
-    for nome, icone, lim in orcs:
-        cat_id = conn.execute("SELECT id FROM categorias WHERE nome=?", (nome,)).fetchone()
-        if cat_id:
-            g = conn.execute(
-                "SELECT COALESCE(SUM(valor),0) FROM transacoes "
-                "WHERE tipo='despesa' AND categoria_id=? AND data LIKE ?",
-                (cat_id[0], f"{prefixo}%"),
-            ).fetchone()[0]
+    if orcs:
+        gastos_cat = conn.execute(
+            "SELECT categoria_id, COALESCE(SUM(valor),0) FROM transacoes "
+            "WHERE tipo='despesa' AND COALESCE(is_transferencia,0)=0 AND data LIKE ? GROUP BY categoria_id",
+            (f"{prefixo}%",)
+        ).fetchall()
+        gastos_dict = {row[0]: row[1] for row in gastos_cat}
+        for nome, icone, lim, cat_id in orcs:
+            g = gastos_dict.get(cat_id, 0)
             if g > lim:
                 tips.append((
                     "🚨", f"{icone} {nome}",
@@ -66,7 +67,7 @@ def gerar_insights(conn, rec, desp, simples, prefixo, mes, ano, saldo_total):
     # Tendência de gastos
     g_ant_p, _, _ = get_pref(mes - 1, ano)
     g_anterior = conn.execute(
-        "SELECT COALESCE(SUM(valor),0) FROM transacoes WHERE tipo='despesa' AND data LIKE ?",
+        "SELECT COALESCE(SUM(valor),0) FROM transacoes WHERE tipo='despesa' AND COALESCE(is_transferencia,0)=0 AND data LIKE ?",
         (f"{g_ant_p}%",),
     ).fetchone()[0]
     if g_anterior > 0 and desp > 0:

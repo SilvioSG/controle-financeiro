@@ -45,10 +45,13 @@ def fmt_data_pt(d):
 
 
 def get_pref(m, a):
-    """Retorna (prefixo 'YYYY-MM', mês ajustado, ano ajustado) para meses negativos."""
+    """Retorna (prefixo 'YYYY-MM', mês ajustado, ano ajustado) para meses fora do intervalo 1-12."""
     while m <= 0:
         m += 12
         a -= 1
+    while m > 12:
+        m -= 12
+        a += 1
     return f"{a}-{m:02d}", m, a
 
 

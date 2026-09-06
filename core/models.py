@@ -114,27 +114,6 @@ def get_metas(conn):
     return read_sql("SELECT * FROM metas ORDER BY id", conn)
 
 
-# ─── Saldos Agregados ────────────────────────────────────────────────────────
-
-def get_saldo_total(conn, saldo_conta_fn):
-    """Calcula saldo total excluindo reserva e cartão de crédito."""
-    from core.utils import TAXA_SIMPLES
-    contas_normais = conn.execute(
-        "SELECT id FROM contas WHERE tipo NOT IN ('Reserva de Emergência', 'Cartão de Crédito')"
-    ).fetchall()
-    saldo = sum(saldo_conta_fn(conn, r[0]) for r in contas_normais)
-    rec_total = conn.execute("SELECT COALESCE(SUM(valor),0) FROM transacoes WHERE tipo='receita'").fetchone()[0]
-    saldo -= rec_total * TAXA_SIMPLES
-    return saldo
-
-
-def get_saldo_reserva(conn, saldo_conta_fn):
-    """Calcula saldo total das contas de reserva de emergência."""
-    contas_reserva = conn.execute(
-        "SELECT id FROM contas WHERE tipo = 'Reserva de Emergência'"
-    ).fetchall()
-    return sum(saldo_conta_fn(conn, r[0]) for r in contas_reserva)
-
 # ─── Consultas Agregadas de Alta Performance ─────────────────────────────────
 
 @st.cache_data(ttl=60, show_spinner=False)
@@ -144,7 +123,7 @@ def get_agrupamento_diario_mes(_conn, prefixo):
         "SELECT substr(data, 9, 2) as dia, "
         "SUM(CASE WHEN tipo = 'receita' THEN valor ELSE 0 END) as rec, "
         "SUM(CASE WHEN tipo = 'despesa' THEN valor ELSE 0 END) as desp "
-        "FROM transacoes WHERE data LIKE ? "
+        "FROM transacoes WHERE data LIKE ? AND COALESCE(is_transferencia,0)=0 "
         "GROUP BY substr(data, 9, 2)",
         (f"{prefixo}%",)
     ).fetchall()
@@ -156,7 +135,7 @@ def get_agrupamento_mensal_ano(_conn, ano):
         "SELECT substr(data, 6, 2) as mes, "
         "SUM(CASE WHEN tipo = 'receita' THEN valor ELSE 0 END) as rec, "
         "SUM(CASE WHEN tipo = 'despesa' THEN valor ELSE 0 END) as desp "
-        "FROM transacoes WHERE data LIKE ? "
+        "FROM transacoes WHERE data LIKE ? AND COALESCE(is_transferencia,0)=0 "
         "GROUP BY substr(data, 6, 2)",
         (f"{ano}-%",)
     ).fetchall()

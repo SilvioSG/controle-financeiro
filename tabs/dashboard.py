@@ -228,6 +228,20 @@ def render(ctx):
             "WHERE t.recorrente=1 AND t.tipo='despesa'"
         ).fetchall()
 
+        # Pré-carregar quais despesas recorrentes já foram pagas neste e no próximo mês
+        mes_atual = hoje.month
+        ano_atual = hoje.year
+        mes_prox = mes_atual + 1 if mes_atual < 12 else 1
+        ano_prox = ano_atual if mes_atual < 12 else ano_atual + 1
+        
+        pagas_db = conn.execute(
+            "SELECT descricao, substr(data, 6, 2) FROM transacoes "
+            "WHERE tipo = 'despesa' AND (data LIKE ? OR data LIKE ?)",
+            (f"{ano_atual}-{mes_atual:02d}%", f"{ano_prox}-{mes_prox:02d}%")
+        ).fetchall()
+        # set de tuplas: (descricao, mes)
+        pagas_set = {(r[0], int(r[1])) for r in pagas_db}
+
         for dia_data in datas_futuras:
             str_data = dia_data.strftime("%Y-%m-%d")
             
@@ -239,12 +253,8 @@ def render(ctx):
             for r in recorrentes: # r = id, desc, valor, data, icone
                 dia_vencimento = int(r[3][-2:])
                 if dia_data.day == dia_vencimento:
-                    # Checar se já foi paga neste mês/ano
-                    ja_paga = conn.execute(
-                        "SELECT COUNT(*) FROM transacoes WHERE descricao = ? AND tipo = 'despesa' AND data LIKE ?",
-                        (r[1], f"{dia_data.year}-{dia_data.month:02d}%")
-                    ).fetchone()[0]
-                    if ja_paga == 0 or dia_data.month != hoje.month:
+                    # Checar se já foi paga no mês simulado
+                    if (r[1], dia_data.month) not in pagas_set or dia_data.month != hoje.month:
                         saldo_simulado -= r[2]
             
             saldos_projetados.append(saldo_simulado)
@@ -280,9 +290,7 @@ def render(ctx):
             badges_ganhas.append(("💰", "Poupador", "Fechando o mês no azul", "#4e8cff"))
         
         # Badge 2: Reserva Forte (Reserva > 3x despesas)
-        from core.database import saldo_conta
-        contas_reserva = conn.execute("SELECT id FROM contas WHERE tipo='Reserva de Emergência'").fetchall()
-        saldo_reserva_local = sum(saldo_conta(conn, c[0]) for c in contas_reserva)
+        saldo_reserva_local = ctx.get("saldo_reserva", 0)
         if saldo_reserva_local > 0 and desp_mes > 0 and (saldo_reserva_local / desp_mes) >= 3:
             badges_ganhas.append(("🛡️", "Blindado", "+3 meses de reserva", "#a855f7"))
         
@@ -329,6 +337,8 @@ def render(ctx):
                             (a[4], a[1], a[2], hoje.strftime("%Y-%m-%d"), a[7], a[8])
                         )
                         conn.commit()
+                        from core.models import clear_cache_transacoes
+                        clear_cache_transacoes()
                         st.success(f"Lançamento de {fmt(a[2])} adicionado!")
                         st.rerun()
         

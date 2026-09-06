@@ -90,7 +90,17 @@ def render(ctx):
         with f5:
             if not categorias_df.empty:
                 co = {f"{r['icone']} {r['nome']} ({r['tipo']})": r["id"] for _, r in categorias_df.iterrows()}
-                cs = st.selectbox("Categoria", list(co.keys()))
+                co_keys = list(co.keys())
+                # Auto-sugerir categoria baseada na descrição
+                default_idx = 0
+                if desc_tx.strip():
+                    sug_id, _ = sugerir_categoria(conn, desc_tx)
+                    if sug_id:
+                        for i, (k, v) in enumerate(co.items()):
+                            if v == sug_id:
+                                default_idx = i
+                                break
+                cs = st.selectbox("Categoria", co_keys, index=default_idx)
                 cat_id = co[cs]
             else:
                 st.warning("Sem categorias.")
@@ -218,6 +228,43 @@ def render(ctx):
     
     txs = get_transacoes_mes(conn, prefixo_mes, busca)
 
+    # ── Filtros avançados e Exportar ─────────────────────────────────
+    with st.expander("🔎 Filtros Avançados / 📤 Exportar CSV"):
+        fc1, fc2, fc3 = st.columns(3)
+        with fc1:
+            filtro_tipo = st.selectbox("Tipo", ["Todos", "🔴 Despesa", "🟢 Receita"], key="filtro_tipo")
+        with fc2:
+            cats_filtro = ["Todas"] + sorted(txs["cat"].dropna().unique().tolist()) if not txs.empty else ["Todas"]
+            filtro_cat = st.selectbox("Categoria", cats_filtro, key="filtro_cat")
+        with fc3:
+            contas_filtro = ["Todas"] + sorted(txs["conta"].dropna().unique().tolist()) if not txs.empty else ["Todas"]
+            filtro_conta = st.selectbox("Conta", contas_filtro, key="filtro_conta")
+        
+        # Aplicar filtros
+        if not txs.empty:
+            if filtro_tipo == "🔴 Despesa":
+                txs = txs[txs["tipo"] == "despesa"]
+            elif filtro_tipo == "🟢 Receita":
+                txs = txs[txs["tipo"] == "receita"]
+            if filtro_cat != "Todas":
+                txs = txs[txs["cat"] == filtro_cat]
+            if filtro_conta != "Todas":
+                txs = txs[txs["conta"] == filtro_conta]
+        
+        # Exportar CSV
+        if not txs.empty:
+            csv_data = txs[["data", "tipo", "descricao", "valor", "cat", "conta"]].copy()
+            csv_data.columns = ["Data", "Tipo", "Descrição", "Valor", "Categoria", "Conta"]
+            csv_string = csv_data.to_csv(index=False).encode("utf-8")
+            st.download_button(
+                "📤 Exportar para CSV",
+                data=csv_string,
+                file_name=f"transacoes_{prefixo_mes}.csv",
+                mime="text/csv",
+                type="primary",
+                use_container_width=True,
+            )
+
     with col_gerenciar:
         if txs.empty:
             tx_opcoes = []
@@ -235,15 +282,80 @@ def render(ctx):
         tx_sel = next(t for t in tx_opcoes if t['id'] == tx_sel_id)
         st.markdown(f"**Ação para:** {tx_sel['descricao']} - {fmt(tx_sel['valor'])}")
         c1, c2 = st.columns(2)
-        if c1.button("🗑️ Excluir Transação", type="primary", use_container_width=True):
-             conn.execute("DELETE FROM transacoes WHERE id=?", (tx_sel_id,))
-             conn.commit()
-             from core.models import clear_cache_transacoes
-             clear_cache_transacoes()
-             st.toast("Removida com sucesso!")
-             st.rerun()
-        if c2.button("✏️ Editar Transação", use_container_width=True):
-             st.info("Para editar, exclua a transação e crie novamente (a funcionalidade de edição completa será adicionada em breve).")
+        with c1:
+            with st.popover("🗑️ Excluir Transação", use_container_width=True):
+                st.write("Tem certeza que deseja excluir esta transação?")
+                if st.button("Sim, Excluir", type="primary", use_container_width=True):
+                     conn.execute("DELETE FROM transacoes WHERE id=?", (tx_sel_id,))
+                     conn.commit()
+                     from core.models import clear_cache_transacoes
+                     clear_cache_transacoes()
+                     st.toast("Removida com sucesso!")
+                     st.rerun()
+        with c2:
+            editar = st.button("✏️ Editar Transação", use_container_width=True)
+        
+        if editar or st.session_state.get(f"editing_{tx_sel_id}"):
+            st.session_state[f"editing_{tx_sel_id}"] = True
+            with st.form(f"form_edit_{tx_sel_id}", clear_on_submit=False):
+                e1, e2 = st.columns(2)
+                with e1:
+                    edit_desc = st.text_input("Descrição", value=tx_sel['descricao'])
+                with e2:
+                    edit_valor = st.number_input("Valor (R$)", value=float(tx_sel['valor']), min_value=0.01, step=10.0, format="%.2f")
+                e3, e4 = st.columns(2)
+                with e3:
+                    try:
+                        edit_data = st.date_input("Data", value=pd.to_datetime(tx_sel['data']).date())
+                    except Exception:
+                        edit_data = st.date_input("Data", value=date.today())
+                with e4:
+                    if not categorias_df.empty:
+                        cat_opts = {f"{r['icone']} {r['nome']}": r["id"] for _, r in categorias_df.iterrows()}
+                        # Encontrar categoria atual
+                        cat_atual = None
+                        for k, v in cat_opts.items():
+                            # Match por nome da categoria
+                            if tx_sel.get('cat') and tx_sel['cat'] in k:
+                                cat_atual = k
+                                break
+                        cat_keys = list(cat_opts.keys())
+                        cat_idx = cat_keys.index(cat_atual) if cat_atual and cat_atual in cat_keys else 0
+                        edit_cat = st.selectbox("Categoria", cat_keys, index=cat_idx, key=f"ecat_{tx_sel_id}")
+                        edit_cat_id = cat_opts[edit_cat]
+                    else:
+                        edit_cat_id = None
+
+                e5, e6 = st.columns(2)
+                with e5:
+                    if not contas_df.empty:
+                        conta_opts = {f"{r['icone']} {r['nome']}": r["id"] for _, r in contas_df.iterrows()}
+                        conta_atual = None
+                        for k, v in conta_opts.items():
+                            if tx_sel.get('conta') and tx_sel['conta'] in k:
+                                conta_atual = k
+                                break
+                        conta_keys = list(conta_opts.keys())
+                        conta_idx = conta_keys.index(conta_atual) if conta_atual and conta_atual in conta_keys else 0
+                        edit_conta = st.selectbox("Conta", conta_keys, index=conta_idx, key=f"econta_{tx_sel_id}")
+                        edit_conta_id = conta_opts[edit_conta]
+                    else:
+                        edit_conta_id = None
+                with e6:
+                    edit_obs = st.text_input("Observação", value=tx_sel.get('observacao', '') or '', key=f"eobs_{tx_sel_id}")
+
+                submitted = st.form_submit_button("💾 Salvar Alterações", width='stretch', type="primary")
+                if submitted and edit_desc.strip() and edit_valor > 0 and edit_cat_id and edit_conta_id:
+                    conn.execute(
+                        "UPDATE transacoes SET descricao=?, valor=?, data=?, categoria_id=?, conta_id=?, observacao=? WHERE id=?",
+                        (edit_desc.strip(), edit_valor, edit_data.strftime("%Y-%m-%d"), edit_cat_id, edit_conta_id, edit_obs.strip(), tx_sel_id),
+                    )
+                    conn.commit()
+                    from core.models import clear_cache_transacoes
+                    clear_cache_transacoes()
+                    st.session_state.pop(f"editing_{tx_sel_id}", None)
+                    st.toast("✅ Transação atualizada!")
+                    st.rerun()
 
     if txs.empty:
         st.info("Nenhuma transação encontrada.")

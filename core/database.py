@@ -161,6 +161,16 @@ def _init_db_sqlite(conn):
         c.execute("ALTER TABLE transacoes ADD COLUMN observacao TEXT DEFAULT ''")
     except sqlite3.OperationalError:
         pass
+    try:
+        c.execute("ALTER TABLE transacoes ADD COLUMN is_transferencia INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
+
+    # Migração: Marcar transferências existentes
+    try:
+        c.execute("UPDATE transacoes SET is_transferencia = 1 WHERE descricao LIKE 'Transferência %' AND is_transferencia = 0")
+    except Exception:
+        pass
 
     c.execute("""CREATE TABLE IF NOT EXISTS metas (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -258,8 +268,16 @@ def _init_db_postgres(conn):
         categoria_id INTEGER REFERENCES categorias(id),
         conta_id INTEGER REFERENCES contas(id),
         recorrente INTEGER DEFAULT 0,
-        observacao TEXT DEFAULT ''
+        observacao TEXT DEFAULT '',
+        is_transferencia INTEGER DEFAULT 0
     )""")
+
+    # Migração: Adicionar coluna se não existir (Postgres)
+    try:
+        c.execute("ALTER TABLE transacoes ADD COLUMN IF NOT EXISTS is_transferencia INTEGER DEFAULT 0")
+        c.execute("UPDATE transacoes SET is_transferencia = 1 WHERE descricao LIKE 'Transferência%%' AND is_transferencia = 0")
+    except Exception:
+        pass
 
     c.execute("""CREATE TABLE IF NOT EXISTS metas (
         id SERIAL PRIMARY KEY,

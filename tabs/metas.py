@@ -55,10 +55,12 @@ def render(ctx):
                                 
                             st.rerun()
                 with a2:
-                    if st.button("🗑️", key=f"dm_{m['id']}"):
-                        conn.execute("DELETE FROM metas WHERE id=?", (m["id"],))
-                        conn.commit()
-                        st.rerun()
+                    with st.popover("🗑️"):
+                        st.write("Deseja excluir esta meta?")
+                        if st.button("Confirmar", key=f"dm_{m['id']}", type="primary"):
+                            conn.execute("DELETE FROM metas WHERE id=?", (m["id"],))
+                            conn.commit()
+                            st.rerun()
     else:
         st.info("Nenhuma meta.")
 

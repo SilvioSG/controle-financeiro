@@ -41,11 +41,13 @@ def render(ctx):
                     unsafe_allow_html=True,
                 )
             with cd:
-                if st.button("🗑️", key=f"da_{c['id']}"):
-                    conn.execute("DELETE FROM transacoes WHERE conta_id=?", (c["id"],))
-                    conn.execute("DELETE FROM contas WHERE id=?", (c["id"],))
-                    conn.commit()
-                    st.rerun()
+                with st.popover("🗑️"):
+                    st.write("Excluir conta e todas suas transações?")
+                    if st.button("Confirmar", key=f"da_{c['id']}", type="primary"):
+                        conn.execute("DELETE FROM transacoes WHERE conta_id=?", (c["id"],))
+                        conn.execute("DELETE FROM contas WHERE id=?", (c["id"],))
+                        conn.commit()
+                        st.rerun()
 
             with st.expander(f"✏️ Editar: {c['nome']}"):
                 ce1, ce2 = st.columns([3, 1])
@@ -60,50 +62,6 @@ def render(ctx):
                             st.rerun()
 
     st.markdown("<br>", unsafe_allow_html=True)
-
-    # ── Transferência entre Contas (Fase 2.3) ─────────────────────────
-    sec("🔄", "Transferência entre Contas")
-    contas_transf = conn.execute(
-        "SELECT id, nome, icone FROM contas WHERE tipo NOT IN ('Cartão de Crédito')"
-    ).fetchall()
-    if len(contas_transf) >= 2:
-        with st.form("form_transf", clear_on_submit=True):
-            ft1, ft2 = st.columns(2)
-            with ft1:
-                origem_opt = {f"{c[2]} {c[1]}": c[0] for c in contas_transf}
-                sel_orig = st.selectbox("Conta Origem", list(origem_opt.keys()), key="transf_orig")
-            with ft2:
-                destino_opt = {f"{c[2]} {c[1]}": c[0] for c in contas_transf}
-                sel_dest = st.selectbox("Conta Destino", list(destino_opt.keys()), key="transf_dest")
-            ft3, ft4 = st.columns(2)
-            with ft3:
-                val_transf = st.number_input("Valor (R$)", min_value=0.01, step=50.0, format="%.2f", key="transf_val")
-            with ft4:
-                data_transf = st.date_input("Data", value=date.today(), key="transf_data")
-
-            if st.form_submit_button("🔄 Transferir", width='stretch', type="primary"):
-                id_orig = origem_opt[sel_orig]
-                id_dest = destino_opt[sel_dest]
-                if id_orig == id_dest:
-                    st.error("Conta origem e destino devem ser diferentes.")
-                elif val_transf > 0:
-                    nome_orig = sel_orig.split(" ", 1)[1] if " " in sel_orig else sel_orig
-                    nome_dest = sel_dest.split(" ", 1)[1] if " " in sel_dest else sel_dest
-                    data_str = data_transf.strftime("%Y-%m-%d")
-                    conn.execute(
-                        "INSERT INTO transacoes (tipo,descricao,valor,data,conta_id) VALUES ('despesa',?,?,?,?)",
-                        (f"Transferência para {nome_dest}", val_transf, data_str, id_orig),
-                    )
-                    conn.execute(
-                        "INSERT INTO transacoes (tipo,descricao,valor,data,conta_id) VALUES ('receita',?,?,?,?)",
-                        (f"Transferência de {nome_orig}", val_transf, data_str, id_dest),
-                    )
-                    conn.commit()
-                    st.success(f"✅ Transferência de {fmt(val_transf)} realizada!")
-                    st.rerun()
-    else:
-        st.info("Crie ao menos 2 contas para fazer transferências.")
-
     st.markdown("<br>", unsafe_allow_html=True)
 
     # ── Nova Conta ────────────────────────────────────────────────────
@@ -191,15 +149,17 @@ def render(ctx):
                     if cat_id_val:
                         # 1. Sai da origem (Despesa)
                         conn.execute(
-                            "INSERT INTO transacoes (tipo,descricao,valor,data,categoria_id,conta_id,observacao) VALUES (?,?,?,?,?,?,?)",
+                            "INSERT INTO transacoes (tipo,descricao,valor,data,categoria_id,conta_id,observacao,is_transferencia) VALUES (?,?,?,?,?,?,?,1)",
                             ("despesa", f"Transferência para {dest_nome.split(' ', 1)[1]}", valor_transf, data_transf.strftime("%Y-%m-%d"), cat_id_val, orig_id, obs_transf)
                         )
                         # 2. Entra no destino (Receita)
                         conn.execute(
-                            "INSERT INTO transacoes (tipo,descricao,valor,data,categoria_id,conta_id,observacao) VALUES (?,?,?,?,?,?,?)",
+                            "INSERT INTO transacoes (tipo,descricao,valor,data,categoria_id,conta_id,observacao,is_transferencia) VALUES (?,?,?,?,?,?,?,1)",
                             ("receita", f"Transferência de {orig_nome.split(' ', 1)[1]}", valor_transf, data_transf.strftime("%Y-%m-%d"), cat_id_val, dest_id, obs_transf)
                         )
                         conn.commit()
+                        from core.models import clear_cache_transacoes
+                        clear_cache_transacoes()
                         st.success("✅ Transferência realizada com sucesso!")
                         st.rerun()
                     else:
