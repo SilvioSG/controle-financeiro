@@ -100,9 +100,11 @@ with st.sidebar:
         simples_mes = rec_mes * TAXA_SIMPLES
         balanco_mes = rec_mes - desp_mes - simples_mes
 
+        cor_balanco = "#00d4aa" if balanco_mes >= 0 else "#ff4b6e"
         cor_saldo = "#00d4aa" if saldo_total >= 0 else "#ff4b6e"
         st.markdown(f"""
-            <div class="sidebar-stat"><span class="ss-label">🏦 Saldo Disponível</span><span class="ss-value" style="color:{cor_saldo}">{fmt(saldo_total)}</span></div>
+            <div class="sidebar-stat"><span class="ss-label">💰 Saldo do Mês</span><span class="ss-value" style="color:{cor_balanco}">{fmt(balanco_mes)}</span></div>
+            <div class="sidebar-stat"><span class="ss-label">🏦 Patrimônio Total</span><span class="ss-value" style="color:{cor_saldo};font-size:0.85rem;opacity:0.7">{fmt(saldo_total + saldo_reserva)}</span></div>
             <div class="sidebar-stat"><span class="ss-label">🛡️ Reserva</span><span class="ss-value" style="color:#4e8cff">{fmt(saldo_reserva)}</span></div>
             <div class="sidebar-stat"><span class="ss-label">📈 Receitas</span><span class="ss-value" style="color:#00d4aa">{fmt(rec_mes)}</span></div>
             <div class="sidebar-stat"><span class="ss-label">📉 Despesas</span><span class="ss-value" style="color:#ff4b6e">{fmt(desp_mes)}</span></div>
