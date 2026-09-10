@@ -84,6 +84,15 @@ with st.sidebar:
             ), 0) FROM contas c WHERE c.tipo = 'Reserva de Emergência'
         """).fetchone()[0]
 
+        # Auto-sync da Meta de Reserva com o saldo real da conta
+        if saldo_reserva > 0:
+            conn.execute("""
+                UPDATE metas 
+                SET valor_atual = ? 
+                WHERE LOWER(nome) LIKE '%reserva%' OR LOWER(nome) LIKE '%emergência%'
+            """, (saldo_reserva,))
+            conn.commit()
+
         rec_mes = conn.execute(
             "SELECT COALESCE(SUM(valor),0) FROM transacoes WHERE tipo='receita' AND COALESCE(is_transferencia,0)=0 AND data LIKE ?",
             (f"{prefixo_mes}%",),
