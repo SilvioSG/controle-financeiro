@@ -565,18 +565,7 @@ def render(ctx):
                 pct = min(data["pct"], 100)
                 ideal_pos = data["ideal"]
                 status = "✅" if data["pct"] <= data["ideal"] + 5 else "⚠️"
-                st.markdown(f"""
-                    <div class="rule-bar-wrap">
-                        <div class="rule-bar-label">
-                            <span class="rule-bar-name">{nome} {status}</span>
-                            <span class="rule-bar-vals">{int(data['pct'])}% real &middot; {data['ideal']}% ideal &middot; {fmt(data['valor'])}</span>
-                        </div>
-                        <div class="rule-bar-bg">
-                            <div class="rule-bar-fill" style="width:{pct}%; background: {cor};"></div>
-                            <div class="rule-bar-ideal" style="left:{ideal_pos}%;"></div>
-                        </div>
-                    </div>
-                """, unsafe_allow_html=True)
+                st.markdown(f'<div class="rule-bar-wrap"><div class="rule-bar-label"><span class="rule-bar-name">{nome} {status}</span><span class="rule-bar-vals">{int(data["pct"])}% real &middot; {data["ideal"]}% ideal &middot; {fmt(data["valor"])}</span></div><div class="rule-bar-bg"><div class="rule-bar-fill" style="width:{pct}%; background: {cor};"></div><div class="rule-bar-ideal" style="left:{ideal_pos}%;"></div></div></div>', unsafe_allow_html=True)
 
             if rec_mes > 0:
                 pct_livre = max(0, 100 - regra["necessidades"]["pct"] - regra["desejos"]["pct"])

@@ -78,15 +78,7 @@ def activity_item(icon, desc, meta, value, is_income=False):
     """Renderiza item do feed de atividade recente."""
     cls = "inc" if is_income else "exp"
     sinal = "+" if is_income else "-"
-    return f"""
-    <div class="activity-item {cls}">
-        <div>
-            <div class="activity-desc">{icon} {html_module.escape(desc)}</div>
-            <div class="activity-meta">{html_module.escape(meta)}</div>
-        </div>
-        <div class="activity-val {cls}">{sinal} {value}</div>
-    </div>
-    """
+    return f'<div class="activity-item {cls}"><div><div class="activity-desc">{icon} {html_module.escape(desc)}</div><div class="activity-meta">{html_module.escape(meta)}</div></div><div class="activity-val {cls}">{sinal} {value}</div></div>'
 
 
 def ring_progress(percentage, size=70, stroke=6, color="var(--green)", label=""):
@@ -192,13 +184,7 @@ def calendar_day_cell(day, amount=0, max_amount=1, is_today=False, has_bill=Fals
     from core.utils import fmt
     amount_html = f'<div class="cal-amount">{fmt(amount)}</div>' if amount > 0 else ""
     
-    return f"""
-    <div class="cal-day {today_cls}" style="background:{bg};" title="Dia {day}: {fmt(amount) if amount > 0 else 'R$ 0,00'}">
-        {bill_html}
-        <span>{day}</span>
-        {amount_html}
-    </div>
-    """
+    return f'<div class="cal-day {today_cls}" style="background:{bg};" title="Dia {day}: {fmt(amount) if amount > 0 else "R$ 0,00"}">{bill_html}<span>{day}</span>{amount_html}</div>'
 
 
 def credit_card_visual(bank_name, icon, bill_value, due_day, color_from="#a855f7", color_to="#6d28d9"):
