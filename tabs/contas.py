@@ -18,7 +18,13 @@ def render(ctx):
     cl = read_sql("SELECT * FROM contas", conn)
 
     if cl.empty:
-        st.info("Nenhuma conta.")
+        st.markdown("""
+            <div class="empty-state">
+                <div class="empty-icon">🏦</div>
+                <div class="empty-title">Nenhuma conta cadastrada</div>
+                <div class="empty-desc">Crie sua primeira conta para começar a controlar suas finanças. Adicione abaixo!</div>
+            </div>
+        """, unsafe_allow_html=True)
     else:
         for _, c in cl.iterrows():
             s = saldo_conta(conn, c["id"])
@@ -30,6 +36,55 @@ def render(ctx):
                 "Cartão de Crédito": "rgba(168,85,247,0.15)",
             }
             bg = bg_colors.get(c["tipo"], "rgba(78,140,255,0.15)")
+            
+            # Sparkline de 30 dias
+            import datetime
+            hoje = datetime.date.today()
+            trinta_dias = hoje - datetime.timedelta(days=30)
+            
+            txs_spark = read_sql(
+                "SELECT data, tipo, valor FROM transacoes WHERE conta_id=? AND data >= ? ORDER BY data ASC",
+                conn, params=(c["id"], trinta_dias.strftime("%Y-%m-%d"))
+            )
+            
+            spark_svg = ""
+            if not txs_spark.empty:
+                txs_spark["dia"] = pd.to_datetime(txs_spark["data"]).dt.date
+                txs_spark["delta"] = txs_spark.apply(lambda r: r["valor"] if r["tipo"] == "receita" else -r["valor"], axis=1)
+                daily = txs_spark.groupby("dia")["delta"].sum().reset_index()
+                
+                idx = pd.date_range(trinta_dias, hoje)
+                daily.set_index(pd.to_datetime(daily["dia"]), inplace=True)
+                daily = daily.reindex(idx, fill_value=0)
+                
+                cum_trend = daily["delta"].cumsum().tolist()
+                
+                if any(v != 0 for v in cum_trend):
+                    max_s = max(cum_trend)
+                    min_s = min(cum_trend)
+                    range_s = max(max_s - min_s, 1)
+                    
+                    points = []
+                    for i, v in enumerate(cum_trend):
+                        x = i * (80 / max(len(cum_trend) - 1, 1))
+                        y = 30 - ((v - min_s) / range_s) * 20
+                        points.append(f"{x},{y}")
+                    pts_str = " ".join(points)
+                    
+                    spark_color = "#00d4aa" if cum_trend[-1] >= cum_trend[0] else "#ff4b6e"
+                    import base64
+                    svg_raw = (
+                        f'<svg xmlns="http://www.w3.org/2000/svg" width="80" height="35" viewBox="0 0 80 35">'
+                        f'<polyline points="{pts_str}" fill="none" stroke="{spark_color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>'
+                        f'</svg>'
+                    )
+                    b64 = base64.b64encode(svg_raw.encode()).decode()
+                    spark_svg = f"""
+                    <div style="margin-left:auto; margin-right: 1.5rem; width:80px; height:35px;" title="Tendência 30 dias">
+                        <img src="data:image/svg+xml;base64,{b64}" width="80" height="35">
+                    </div>
+                    """
+            
             ca, cd = st.columns([12, 1])
             with ca:
                 st.markdown(
@@ -37,6 +92,7 @@ def render(ctx):
                     f'<div class="acc-icon-wrap" style="background:{bg};">{c["icone"]}</div>'
                     f'<div><div class="acc-name">{c["nome"]}</div>'
                     f'<div class="acc-type">{c["tipo"]}</div></div></div>'
+                    f'{spark_svg}'
                     f'<div class="acc-balance" style="color:{cs2};">{fmt(s)}</div></div>',
                     unsafe_allow_html=True,
                 )

@@ -1,5 +1,6 @@
 """
 tabs/insights.py — Aba de Insights e análise financeira.
+Versão 2.0: Insights com prioridade, radar de saúde, heatmap melhorado, tooltips contextuais.
 """
 import streamlit as st
 import pandas as pd
@@ -8,7 +9,8 @@ import plotly.graph_objects as go
 from core.utils import fmt, get_pref, MESES_PT, TAXA_SIMPLES, PLOTLY_LAYOUT
 from core.database import read_sql
 import html
-from components.cards import sec
+from components.cards import sec, ring_progress
+from components.tooltip_helper import get_tooltip
 from intelligence.insights import gerar_insights
 
 
@@ -26,22 +28,143 @@ def render(ctx):
     hoje = ctx["hoje"]
     dias_mes = ctx["dias_mes"]
 
-    # ── Dicas Personalizadas ──────────────────────────────────────────
+    # ══════════════════════════════════════════════════════════════════
+    # RADAR DE SAÚDE FINANCEIRA
+    # ══════════════════════════════════════════════════════════════════
+    sec("🎯", "Radar de Saúde Financeira")
+    st.caption("Visão rápida de 5 pilares da sua vida financeira.")
+    
+    saldo_reserva = ctx.get("saldo_reserva", 0)
+    score = ctx.get("score", 0)
+    
+    # Calcular scores por pilar
+    # 1. Economia (% que sobra da receita)
+    economia_score = max(0, min(100, ((rec_mes - desp_mes - simples_mes) / max(rec_mes, 1)) * 200))
+    
+    # 2. Investimento (se tem reserva/investimento)
+    investimento_score = min(100, (saldo_reserva / max(desp_mes * 3, 1)) * 100) if desp_mes > 0 else 0
+    
+    # 3. Controle de gastos (% do orçamento usado)
+    total_orc = conn.execute("SELECT COALESCE(SUM(valor_limite),0) FROM orcamentos WHERE mes=? AND ano=?", (mes_sel, ano_sel)).fetchone()[0]
+    if total_orc > 0:
+        gasto_pct = min(desp_mes / total_orc, 1.5) 
+        orcamento_score = max(0, 100 - (gasto_pct - 0.5) * 200) if gasto_pct > 0.5 else 100
+    else:
+        orcamento_score = 50  # Não tem orçamento, nota neutra
+    
+    # 4. Emergência (meses de reserva)
+    if desp_mes > 0 and saldo_reserva > 0:
+        meses_reserva = saldo_reserva / desp_mes
+        emergencia_score = min(100, (meses_reserva / 6) * 100)
+    else:
+        emergencia_score = 0
+    
+    # 5. Dívida (se cartão está controlado)
+    total_cc = conn.execute("SELECT COALESCE(SUM(limite_cartao),0) FROM contas WHERE tipo='Cartão de Crédito'").fetchone()[0]
+    total_cc_usado = conn.execute("""
+        SELECT COALESCE(SUM(
+            COALESCE((SELECT SUM(valor) FROM transacoes WHERE conta_id = c.id AND tipo='despesa'), 0) -
+            COALESCE((SELECT SUM(valor) FROM transacoes WHERE conta_id = c.id AND tipo='receita'), 0)
+        ), 0) FROM contas c WHERE c.tipo = 'Cartão de Crédito'
+    """).fetchone()[0]
+    if total_cc > 0:
+        divida_score = max(0, 100 - (total_cc_usado / total_cc * 100))
+    else:
+        divida_score = 100  # Sem cartão = sem dívida
+
+    fig_radar = go.Figure()
+    
+    categorias_radar = ['Economia', 'Investimento', 'Orçamento', 'Emergência', 'Dívida']
+    valores = [economia_score, investimento_score, orcamento_score, emergencia_score, divida_score]
+    
+    # Área ideal (tudo 70+)
+    fig_radar.add_trace(go.Scatterpolar(
+        r=[70]*5 + [70],
+        theta=categorias_radar + [categorias_radar[0]],
+        fill='toself',
+        fillcolor='rgba(0,212,170,0.05)',
+        line=dict(color='rgba(0,212,170,0.3)', width=1, dash='dash'),
+        name='Zona Ideal (70+)',
+    ))
+    
+    fig_radar.add_trace(go.Scatterpolar(
+        r=valores + [valores[0]],
+        theta=categorias_radar + [categorias_radar[0]],
+        fill='toself',
+        fillcolor='rgba(78,140,255,0.15)',
+        line=dict(color='#4e8cff', width=3),
+        name='Sua Situação',
+        hovertemplate='%{theta}: %{r:.0f}/100<extra></extra>',
+    ))
+    
+    fig_radar.update_layout(
+        polar=dict(
+            radialaxis=dict(visible=True, range=[0, 100], showticklabels=True, 
+                          tickfont=dict(size=9, color='#5a6478'),
+                          gridcolor='rgba(255,255,255,0.05)'),
+            angularaxis=dict(tickfont=dict(size=11, color='#8b95a5'),
+                           gridcolor='rgba(255,255,255,0.05)'),
+            bgcolor='rgba(0,0,0,0)',
+        ),
+        paper_bgcolor='rgba(0,0,0,0)',
+        font=dict(family='Inter', color='#8b95a5'),
+        height=320,
+        margin=dict(l=60, r=60, t=30, b=30),
+        legend=dict(bgcolor='rgba(0,0,0,0)', font=dict(size=10)),
+        showlegend=True,
+    )
+    st.plotly_chart(fig_radar, key="radar_health")
+
+    # Mini-cards de cada pilar
+    pilares = [
+        ("💰", "Economia", economia_score, "#00d4aa"),
+        ("📈", "Investimento", investimento_score, "#4e8cff"),
+        ("📊", "Orçamento", orcamento_score, "#a855f7"),
+        ("🛡️", "Emergência", emergencia_score, "#f59e0b"),
+        ("💳", "Dívida", divida_score, "#06b6d4"),
+    ]
+    cols_p = st.columns(5)
+    for i, (icon, nome, valor, cor) in enumerate(pilares):
+        with cols_p[i]:
+            ring_html = ring_progress(valor, size=45, stroke=4, color=cor, label=f"{valor:.0f}")
+            st.markdown(f"""
+                <div class="glass-card" style="text-align:center;padding:0.7rem;">
+                    {ring_html}
+                    <div style="font-size:0.68rem;color:var(--text2);margin-top:0.3rem;">{icon} {nome}</div>
+                </div>
+            """, unsafe_allow_html=True)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # ══════════════════════════════════════════════════════════════════
+    # DICAS PERSONALIZADAS (com prioridade)
+    # ══════════════════════════════════════════════════════════════════
     sec("💡", "Dicas Personalizadas")
     st.caption("Análise automática baseada nos seus dados reais.")
 
     insights = gerar_insights(conn, rec_mes, desp_mes, simples_mes, prefixo_mes, mes_sel, ano_sel, saldo_total)
-    for icone, label, texto in insights:
+    for idx, (icone, label, texto) in enumerate(insights):
+        # Determinar prioridade baseada no ícone/conteúdo
+        if any(w in texto.lower() for w in ["atenção", "cuidado", "ultrapass", "alto"]):
+            priority_cls = "critical"
+            priority_text = "ATENÇÃO"
+        elif any(w in texto.lower() for w in ["dica", "sugest", "considere", "pode"]):
+            priority_cls = "warning"
+            priority_text = "DICA"
+        else:
+            priority_cls = "positive"
+            priority_text = "POSITIVO"
+        
         st.markdown(f"""
-            <div class="insight-card">
+            <div class="insight-card" style="animation-delay:{idx * 0.08}s;">
                 <span class="insight-icon">{icone}</span>
                 <div>
+                    <span class="insight-priority {priority_cls}">{priority_text}</span>
                     <div class="insight-text">{texto}</div>
                     <div class="insight-label">{label}</div>
                 </div>
             </div>
         """, unsafe_allow_html=True)
-
 
     st.markdown("<br>", unsafe_allow_html=True)
     
@@ -64,7 +187,6 @@ def render(ctx):
                     try:
                         client = genai.Client(api_key=api_key_custos)
                         
-                        # Buscar todas as despesas do mês selecionado
                         txs_ia = conn.execute(
                             "SELECT t.descricao, t.valor, c.nome, t.data FROM transacoes t "
                             "LEFT JOIN categorias c ON t.categoria_id = c.id "
@@ -114,7 +236,9 @@ def render(ctx):
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # ── Comparativo mês atual vs anterior ─────────────────────────────
+    # ══════════════════════════════════════════════════════════════════
+    # COMPARATIVO COM MÊS ANTERIOR (melhorado)
+    # ══════════════════════════════════════════════════════════════════
     sec("📊", "Comparativo com Mês Anterior")
     p_ant, m_ant, a_ant = get_pref(mes_sel - 1, ano_sel)
     rec_ant = conn.execute(
@@ -142,12 +266,12 @@ def render(ctx):
         st.markdown(f"""
             <div class="glass-card" style="text-align: center;">
                 <div style="font-size: 1.3rem; margin-bottom: 0.3rem;">{icon}</div>
-                <div style="font-size: 0.7rem; color: #8b95a5; text-transform: uppercase;">{label}</div>
-                <div style="font-size: 1.2rem; font-weight: 700; color: #f0f2f5;">{fmt(atual)}</div>
+                <div style="font-size: 0.7rem; color: var(--text2); text-transform: uppercase;">{label}</div>
+                <div style="font-size: 1.2rem; font-weight: 700; color: var(--text);">{fmt(atual)}</div>
                 <div style="font-size: 0.75rem; color: {cor_var}; font-weight: 600; margin-top: 0.2rem;">
                     {seta} {abs(var):.1f}% vs {MESES_PT[m_ant][:3]}
                 </div>
-                <div style="font-size: 0.68rem; color: #5a6478;">Anterior: {fmt(anterior)}</div>
+                <div style="font-size: 0.68rem; color: var(--text3);">Anterior: {fmt(anterior)}</div>
             </div>
         """, unsafe_allow_html=True)
 
@@ -171,15 +295,15 @@ def render(ctx):
             <div class="glass-card">
                 <div style="display: flex; justify-content: space-around; text-align: center;">
                     <div>
-                        <div style="font-size: 0.7rem; color: #8b95a5; text-transform: uppercase;">Média Diária</div>
+                        <div style="font-size: 0.7rem; color: var(--text2); text-transform: uppercase;">Média Diária</div>
                         <div style="font-size: 1.1rem; font-weight: 700; color: #f59e0b;">{fmt(media_diaria)}</div>
                     </div>
                     <div>
-                        <div style="font-size: 0.7rem; color: #8b95a5; text-transform: uppercase;">Dias Restantes</div>
+                        <div style="font-size: 0.7rem; color: var(--text2); text-transform: uppercase;">Dias Restantes</div>
                         <div style="font-size: 1.1rem; font-weight: 700; color: #4e8cff;">{dias_restantes}</div>
                     </div>
                     <div>
-                        <div style="font-size: 0.7rem; color: #8b95a5; text-transform: uppercase;">Previsão Total</div>
+                        <div style="font-size: 0.7rem; color: var(--text2); text-transform: uppercase;">Previsão Total</div>
                         <div style="font-size: 1.1rem; font-weight: 700; color: #ff4b6e;">{fmt(previsao)}</div>
                     </div>
                 </div>
@@ -207,13 +331,13 @@ def render(ctx):
                 st.markdown(f"""
                     <div class="glass-card" style="text-align: center; padding: 0.8rem;">
                         <div style="font-size: 1.3rem;">{row['icone']}</div>
-                        <div style="font-size: 0.75rem; color: #8b95a5; margin: 0.2rem 0;">{row['nome']}</div>
-                        <div style="font-size: 0.95rem; font-weight: 700; color: #f0f2f5;">{fmt(row['media'])}/mês</div>
+                        <div style="font-size: 0.75rem; color: var(--text2); margin: 0.2rem 0;">{row['nome']}</div>
+                        <div style="font-size: 0.95rem; font-weight: 700; color: var(--text);">{fmt(row['media'])}/mês</div>
                     </div>
                 """, unsafe_allow_html=True)
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # ── Evolução de Categorias (6 meses) (Fase 3.4) ───────────────────
+    # ── Evolução de Categorias (6 meses) ───────────────────────────
     sec("📈", "Evolução de Categorias (Últimos 6 meses)")
     
     mes_ant6 = mes_sel - 5
@@ -247,7 +371,7 @@ def render(ctx):
         st.info("Sem dados suficientes para os últimos 6 meses.")
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # ── Heatmap: Gastos por Dia da Semana (Fase 3.3) ──────────────────
+    # ── Heatmap: Gastos por Dia da Semana ──────────────────────────────
     sec("📅", "Gastos por Dia da Semana")
     dias_semana_map = {0: "Seg", 1: "Ter", 2: "Qua", 3: "Qui", 4: "Sex", 5: "Sáb", 6: "Dom"}
     txs_mes = read_sql(
@@ -258,22 +382,22 @@ def render(ctx):
         txs_mes["dia_semana"] = pd.to_datetime(txs_mes["data"]).dt.dayofweek
         gastos_dia = txs_mes.groupby("dia_semana")["valor"].sum().reindex(range(7), fill_value=0)
         
-        # Cores quentes para heatmap (do azul pro vermelho)
-        colors = ["rgba(78,140,255,0.2)", "rgba(78,140,255,0.5)", "rgba(0,212,170,0.5)", 
-                  "rgba(0,212,170,0.8)", "rgba(245,158,11,0.6)", "rgba(245,158,11,0.9)", 
-                  "rgba(255,75,110,0.9)"]
-        
         max_val = gastos_dia.max() if gastos_dia.max() > 0 else 1
         
         cols_hm = st.columns(7)
         for d in range(7):
             val = gastos_dia[d]
-            intensidade = min(int((val / max_val) * 6), 6)
-            cor_bg = colors[intensidade]
+            intensidade = min(val / max_val, 1.0)
+            # Gradiente do azul ao vermelho
+            r = int(30 + intensidade * 225)
+            g = int(40 + (1 - intensidade) * 100)
+            b = int(100 - intensidade * 50)
+            cor_bg = f"rgba({r},{g},{b},{0.15 + intensidade * 0.4})"
+            
             with cols_hm[d]:
                 st.markdown(f"""
-                    <div style="background:{cor_bg}; border-radius:10px; padding:0.8rem 0.2rem; text-align:center; display:flex; flex-direction:column; justify-content:center; min-height:80px; border:1px solid rgba(255,255,255,0.05);">
-                        <div style="font-size:0.75rem; font-weight:700; color:#f0f2f5;">{dias_semana_map[d]}</div>
+                    <div style="background:{cor_bg}; border-radius:10px; padding:0.8rem 0.2rem; text-align:center; display:flex; flex-direction:column; justify-content:center; min-height:80px; border:1px solid rgba(255,255,255,0.05); transition:all 0.3s;">
+                        <div style="font-size:0.75rem; font-weight:700; color:var(--text);">{dias_semana_map[d]}</div>
                         <div style="font-size:0.8rem; font-weight:800; color:#fff; margin-top:0.3rem;">{fmt(val)}</div>
                     </div>
                 """, unsafe_allow_html=True)
@@ -282,8 +406,9 @@ def render(ctx):
         val_max = gastos_dia.max()
         if val_max > 0:
             st.markdown(f"""
-                <div style="margin-top: 1rem; padding: 0.8rem; background: rgba(245,158,11,0.1); border-left: 3px solid #f59e0b; border-radius: 4px;">
-                    💡 <b>Insight Automático:</b> Você costuma gastar mais às <b>{dias_semana_map[dia_max]}s-feiras</b> (média de {fmt(val_max)}).
+                <div class="alert-card warning" style="margin-top:1rem;">
+                    <span class="alert-icon">💡</span>
+                    <span class="alert-text"><b>Insight Automático:</b> Você costuma gastar mais às <b>{dias_semana_map[dia_max]}s-feiras</b> (média de {fmt(val_max)}).</span>
                 </div>
             """, unsafe_allow_html=True)
     else:
@@ -291,16 +416,100 @@ def render(ctx):
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # ── Projeção de Patrimônio - 12 Meses (Fase 4.4) ──────────────────
+    # ── Heatmap Estilo GitHub (Atividade) ──────────────────────────────
+    sec("🔥", "Frequência de Registros (Últimos 6 meses)")
+    st.caption("Acompanhe sua consistência em registrar transações (Gamificação).")
+    
+    import datetime
+    seis_meses_atras = hoje - datetime.timedelta(days=180)
+    txs_freq = read_sql(
+        "SELECT data, COUNT(id) as qtd FROM transacoes WHERE data >= ? GROUP BY data",
+        conn, params=(seis_meses_atras.strftime("%Y-%m-%d"),)
+    )
+    
+    # Criar um dict de data -> qtd
+    dict_freq = {}
+    if not txs_freq.empty:
+        dict_freq = {r["data"]: r["qtd"] for _, r in txs_freq.iterrows()}
+        
+    max_qtd = max(dict_freq.values()) if dict_freq else 1
+    
+    # Gerar a matriz de 7 dias x ~26 semanas
+    dias_grid = []
+    curr_date = seis_meses_atras
+    
+    # Preencher espaços vazios até segunda-feira
+    offset_inicio = curr_date.weekday()
+    semana_atual = [None] * offset_inicio
+    
+    while curr_date <= hoje:
+        semana_atual.append(curr_date)
+        if len(semana_atual) == 7:
+            dias_grid.append(semana_atual)
+            semana_atual = []
+        curr_date += datetime.timedelta(days=1)
+        
+    if semana_atual:
+        while len(semana_atual) < 7:
+            semana_atual.append(None)
+        dias_grid.append(semana_atual)
+        
+    # Renderizar HTML do grid
+    gh_html = '<div style="display:flex; gap:4px; overflow-x:auto; padding-bottom:10px;">'
+    
+    for semana in dias_grid:
+        gh_html += '<div style="display:flex; flex-direction:column; gap:4px;">'
+        for dia_data in semana:
+            if dia_data is None:
+                gh_html += '<div style="width:12px; height:12px; border-radius:3px; background:transparent;"></div>'
+            else:
+                str_d = dia_data.strftime("%Y-%m-%d")
+                qtd = dict_freq.get(str_d, 0)
+                
+                if qtd == 0:
+                    cor_bg = "rgba(255,255,255,0.05)"
+                else:
+                    # Cores estilo GitHub (tons de verde/azul)
+                    intensidade = min(qtd / max_qtd, 1.0)
+                    r = int(11 + (0 - 11) * intensidade)
+                    g = int(255 * intensidade)
+                    b = int(110 + (170 - 110) * intensidade)
+                    cor_bg = f"rgba(0, 212, 170, {max(0.3, intensidade)})"
+                    
+                tooltip_txt = f"{qtd} transações em {str_d}" if qtd > 0 else f"Sem registros em {str_d}"
+                gh_html += f'<div title="{tooltip_txt}" style="width:12px; height:12px; border-radius:3px; background:{cor_bg}; border: 1px solid rgba(255,255,255,0.02);"></div>'
+        gh_html += '</div>'
+    gh_html += '</div>'
+    
+    # Legenda
+    gh_html += """
+    <div style="display:flex; align-items:center; gap:5px; font-size:0.65rem; color:var(--text3); margin-top:0.5rem; justify-content:flex-end;">
+        <span>Menos</span>
+        <div style="width:12px; height:12px; border-radius:3px; background:rgba(255,255,255,0.05);"></div>
+        <div style="width:12px; height:12px; border-radius:3px; background:rgba(0,212,170,0.3);"></div>
+        <div style="width:12px; height:12px; border-radius:3px; background:rgba(0,212,170,0.6);"></div>
+        <div style="width:12px; height:12px; border-radius:3px; background:rgba(0,212,170,1.0);"></div>
+        <span>Mais</span>
+    </div>
+    """
+    
+    st.markdown(f"""
+        <div class="glass-card" style="padding: 1rem;">
+            {gh_html}
+        </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # ── Projeção de Patrimônio - 12 Meses ──────────────────────────
     sec("🔮", "Projeção de Patrimônio (12 meses)")
     st.caption("Baseado na sua média de economia dos últimos 3 meses.")
     
-    # Calcular média de sobra dos últimos 3 meses
     sobras_3m = []
     for i in range(1, 4):
-        p_ant, m_ant, a_ant = get_pref(mes_sel - i, ano_sel)
-        r_ant = conn.execute("SELECT COALESCE(SUM(valor),0) FROM transacoes WHERE tipo='receita' AND COALESCE(is_transferencia,0)=0 AND data LIKE ?", (f"{p_ant}%",)).fetchone()[0]
-        d_ant = conn.execute("SELECT COALESCE(SUM(valor),0) FROM transacoes WHERE tipo='despesa' AND COALESCE(is_transferencia,0)=0 AND data LIKE ?", (f"{p_ant}%",)).fetchone()[0]
+        p_ant_proj, m_ant_proj, a_ant_proj = get_pref(mes_sel - i, ano_sel)
+        r_ant = conn.execute("SELECT COALESCE(SUM(valor),0) FROM transacoes WHERE tipo='receita' AND COALESCE(is_transferencia,0)=0 AND data LIKE ?", (f"{p_ant_proj}%",)).fetchone()[0]
+        d_ant = conn.execute("SELECT COALESCE(SUM(valor),0) FROM transacoes WHERE tipo='despesa' AND COALESCE(is_transferencia,0)=0 AND data LIKE ?", (f"{p_ant_proj}%",)).fetchone()[0]
         s_ant = r_ant * TAXA_SIMPLES
         sobras_3m.append(max(0, r_ant - d_ant - s_ant))
     
@@ -317,34 +526,28 @@ def render(ctx):
         acumulado_ot = patrimonio_base
         acumulado_pe = patrimonio_base
         
-        # Taxa Selic aprox 1% a.m para a projeção
         taxa = 0.01
         
         for i in range(1, 13):
-            # Mês projetado
             p_futuro, m_futuro, a_futuro = get_pref(mes_sel + i, ano_sel)
             meses_proj.append(f"{MESES_PT[m_futuro][:3]}/{str(a_futuro)[2:]}")
             
-            # Realista (Média)
             acumulado = (acumulado * (1 + taxa)) + media_sobra
             proj_real.append(acumulado)
             
-            # Otimista (+20% de economia)
             acumulado_ot = (acumulado_ot * (1 + taxa)) + (media_sobra * 1.2)
             proj_otimista.append(acumulado_ot)
             
-            # Pessimista (-20% de economia)
             acumulado_pe = (acumulado_pe * (1 + taxa)) + (media_sobra * 0.8)
             proj_pessimista.append(acumulado_pe)
 
         fig_proj = go.Figure()
         
-        # Área entre otimista e pessimista
         fig_proj.add_trace(go.Scatter(
             x=meses_proj + meses_proj[::-1],
             y=proj_otimista + proj_pessimista[::-1],
             fill='toself',
-            fillcolor='rgba(78, 140, 255, 0.1)',
+            fillcolor='rgba(78, 140, 255, 0.08)',
             line=dict(color='rgba(255,255,255,0)'),
             hoverinfo="skip",
             showlegend=False
@@ -387,11 +590,11 @@ def render(ctx):
         st.markdown(f"""
             <div style="display:flex; justify-content:space-between; align-items:center; background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.05); padding:1rem; border-radius:12px; margin-top:0.5rem;">
                 <div>
-                    <div style="font-size:0.7rem; color:#8b95a5; text-transform:uppercase;">Economia Média Mensal (Últ. 3 meses)</div>
-                    <div style="font-size:1.2rem; font-weight:800; color:#f0f2f5;">{fmt(media_sobra)}</div>
+                    <div style="font-size:0.7rem; color:var(--text2); text-transform:uppercase;">Economia Média Mensal (Últ. 3 meses)</div>
+                    <div style="font-size:1.2rem; font-weight:800; color:var(--text);">{fmt(media_sobra)}</div>
                 </div>
                 <div style="text-align:right;">
-                    <div style="font-size:0.7rem; color:#8b95a5; text-transform:uppercase;">Projeção de Patrimônio em 1 Ano</div>
+                    <div style="font-size:0.7rem; color:var(--text2); text-transform:uppercase;">Projeção de Patrimônio em 1 Ano</div>
                     <div style="font-size:1.4rem; font-weight:900; color:#4e8cff;">{fmt(proj_real[-1])}</div>
                 </div>
             </div>

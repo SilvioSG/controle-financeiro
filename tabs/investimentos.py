@@ -94,87 +94,220 @@ def render(ctx):
             </div>
         """, unsafe_allow_html=True)
 
-    # ── Simulador ─────────────────────────────────────────────────────
-    col_sim, col_res = st.columns([1, 1])
-    with col_sim:
-        capital = st.number_input("💰 Valor inicial (R$)", min_value=0.0, value=1000.0, step=100.0, format="%.2f")
-        aporte = st.number_input("📥 Aporte mensal (R$)", min_value=0.0, value=500.0, step=50.0, format="%.2f")
-        prazo = st.number_input("📅 Prazo (meses)", min_value=1, max_value=360, value=24, step=12)
-
-        st.markdown("---")
-        st.markdown("**📊 Opções de Investimento:**")
-        opcoes = {
-            "🏛️ Tesouro Selic (~14,25% a.a.)": 14.25,
-            "🏦 CDB 100% CDI (~14,15% a.a.)": 14.15,
-            "🏦 CDB 120% CDI (~17% a.a.)": 17.0,
-            "🏠 LCI/LCA 90% CDI (isento IR)": 12.7,
-            "💰 Poupança (~7,5% a.a.)": 7.5,
-            "📝 Taxa personalizada": 0,
-        }
-        opcao = st.selectbox("Escolha", list(opcoes.keys()))
-        if "personalizada" in opcao.lower():
-            taxa = st.number_input("Taxa anual (%)", min_value=0.1, value=14.0, step=0.5)
-        else:
-            taxa = opcoes[opcao]
-        is_lci = "LCI" in opcao
-
-    with col_res:
-        if taxa > 0 and (capital > 0 or aporte > 0):
-            sim = simular_investimento(capital, aporte, prazo, taxa)
-            if is_lci:
-                sim["ir"] = 0
-                sim["aliquota"] = 0
-                sim["liquido"] = sim["bruto"]
-
-            sec("📈", "Resultado da Simulação")
-
-            col_r1, col_r2 = st.columns(2)
-            with col_r1:
-                st.markdown(f"""
-                    <div class="glass-card" style="text-align:center;">
-                        <div style="font-size:0.7rem;color:#8b95a5;text-transform:uppercase;">Valor Líquido</div>
-                        <div style="font-size:1.5rem;font-weight:800;color:#00d4aa;">{fmt(sim['liquido'])}</div>
+    # ── Flowchart Onde Investir ───────────────────────────────────────────
+    st.markdown("<br>", unsafe_allow_html=True)
+    with st.expander("🗺️ Mapa: Onde Investir?", expanded=False):
+        st.markdown("""
+        <div style="font-family: 'Inter', sans-serif; max-width: 700px; margin: 0 auto; color: var(--text);">
+            <div style="background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; padding: 1.5rem; position: relative;">
+                
+                <!-- Passo 1 -->
+                <div style="text-align: center; margin-bottom: 2rem;">
+                    <div style="display:inline-block; background: var(--purple); color: #fff; padding: 0.5rem 1rem; border-radius: 20px; font-weight: 700; margin-bottom: 0.5rem;">1. Você tem dívidas caras? (Cartão, Cheque Especial)</div>
+                    <div style="display: flex; justify-content: center; gap: 4rem; margin-top: 0.5rem;">
+                        <div style="text-align: center;">
+                            <div style="font-weight: 700; color: var(--red);">SIM</div>
+                            <div>⬇️</div>
+                            <div style="background: rgba(255,75,110,0.1); border: 1px solid var(--red); color: var(--red); padding: 0.5rem; border-radius: 8px; font-size: 0.8rem; margin-top: 0.5rem;">Pague as dívidas PRIMEIRO.<br>Nenhum investimento rende<br>mais que os juros do cartão!</div>
+                        </div>
+                        <div style="text-align: center;">
+                            <div style="font-weight: 700; color: var(--green);">NÃO</div>
+                            <div>⬇️</div>
+                            <div style="font-size: 0.8rem; margin-top: 0.5rem; color: var(--text2);">Siga para o passo 2</div>
+                        </div>
                     </div>
-                """, unsafe_allow_html=True)
-            with col_r2:
-                st.markdown(f"""
-                    <div class="glass-card" style="text-align:center;">
-                        <div style="font-size:0.7rem;color:#8b95a5;text-transform:uppercase;">Rendimento Líquido</div>
-                        <div style="font-size:1.5rem;font-weight:800;color:#4e8cff;">{fmt(sim['liquido'] - sim['investido'])}</div>
+                </div>
+                
+                <hr style="border-color: rgba(255,255,255,0.05); margin: 2rem 0;">
+                
+                <!-- Passo 2 -->
+                <div style="text-align: center; margin-bottom: 2rem;">
+                    <div style="display:inline-block; background: var(--blue); color: #fff; padding: 0.5rem 1rem; border-radius: 20px; font-weight: 700; margin-bottom: 0.5rem;">2. Você tem Reserva de Emergência? (6 meses de gastos)</div>
+                    <div style="display: flex; justify-content: center; gap: 4rem; margin-top: 0.5rem;">
+                        <div style="text-align: center;">
+                            <div style="font-weight: 700; color: var(--red);">NÃO</div>
+                            <div>⬇️</div>
+                            <div style="background: rgba(78,140,255,0.1); border: 1px solid var(--blue); color: #4e8cff; padding: 0.5rem; border-radius: 8px; font-size: 0.8rem; margin-top: 0.5rem;">Monte a Reserva!<br>Onde: <b>Tesouro Selic</b> ou<br><b>CDB 100% CDI Liquidez Diária</b>.</div>
+                        </div>
+                        <div style="text-align: center;">
+                            <div style="font-weight: 700; color: var(--green);">SIM</div>
+                            <div>⬇️</div>
+                            <div style="font-size: 0.8rem; margin-top: 0.5rem; color: var(--text2);">Siga para o passo 3</div>
+                        </div>
                     </div>
-                """, unsafe_allow_html=True)
+                </div>
+                
+                <hr style="border-color: rgba(255,255,255,0.05); margin: 2rem 0;">
+                
+                <!-- Passo 3 -->
+                <div style="text-align: center;">
+                    <div style="display:inline-block; background: var(--green); color: #0b0e14; padding: 0.5rem 1rem; border-radius: 20px; font-weight: 700; margin-bottom: 0.5rem;">3. Qual o prazo do seu objetivo?</div>
+                    <div style="display: flex; justify-content: center; flex-wrap: wrap; gap: 1rem; margin-top: 0.5rem;">
+                        <div style="flex:1; min-width: 150px; background: rgba(255,255,255,0.02); padding: 1rem; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1);">
+                            <div style="font-weight: 700; color: var(--amber); margin-bottom: 0.5rem;">Curto Prazo<br><span style="font-size:0.7rem;font-weight:400;">(Até 2 anos)</span></div>
+                            <div style="font-size: 0.8rem; color: var(--text2);">Viagens, comprar carro.</div>
+                            <div style="font-size: 0.85rem; font-weight: 700; margin-top: 0.5rem; color: #fff;">Onde investir:</div>
+                            <div style="font-size: 0.8rem; color: var(--text3);">LCI/LCA, CDB Prefixado, Tesouro Prefixado.</div>
+                        </div>
+                        <div style="flex:1; min-width: 150px; background: rgba(255,255,255,0.02); padding: 1rem; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1);">
+                            <div style="font-weight: 700; color: var(--green-glow); margin-bottom: 0.5rem;">Médio Prazo<br><span style="font-size:0.7rem;font-weight:400;">(3 a 5 anos)</span></div>
+                            <div style="font-size: 0.8rem; color: var(--text2);">Comprar imóvel, casar.</div>
+                            <div style="font-size: 0.85rem; font-weight: 700; margin-top: 0.5rem; color: #fff;">Onde investir:</div>
+                            <div style="font-size: 0.8rem; color: var(--text3);">Tesouro IPCA+ (curto), Fundos Multimercado, CDBs longos.</div>
+                        </div>
+                        <div style="flex:1; min-width: 150px; background: rgba(255,255,255,0.02); padding: 1rem; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1);">
+                            <div style="font-weight: 700; color: #a855f7; margin-bottom: 0.5rem;">Longo Prazo<br><span style="font-size:0.7rem;font-weight:400;">(5+ anos)</span></div>
+                            <div style="font-size: 0.8rem; color: var(--text2);">Aposentadoria, independência.</div>
+                            <div style="font-size: 0.85rem; font-weight: 700; margin-top: 0.5rem; color: #fff;">Onde investir:</div>
+                            <div style="font-size: 0.8rem; color: var(--text3);">Tesouro IPCA+ (longo), Ações, FIIs, BDRs, ETFs (IVVB11).</div>
+                        </div>
+                    </div>
+                </div>
+                
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
 
+    # ── Simulador Side-by-Side ─────────────────────────────────────────────────────
+    st.markdown("<br>", unsafe_allow_html=True)
+    sec("⚖️", "Comparador de Investimentos (Side-by-Side)")
+    st.caption("Compare lado a lado duas opções de renda fixa.")
+    
+    col_input1, col_input2, col_input3 = st.columns(3)
+    with col_input1:
+        capital = st.number_input("💰 Valor inicial (R$)", min_value=0.0, value=1000.0, step=100.0, format="%.2f", key="cap_sim")
+    with col_input2:
+        aporte = st.number_input("📥 Aporte mensal (R$)", min_value=0.0, value=500.0, step=50.0, format="%.2f", key="apo_sim")
+    with col_input3:
+        prazo = st.number_input("📅 Prazo (meses)", min_value=1, max_value=360, value=24, step=12, key="prz_sim")
+
+    st.markdown("---")
+    
+    opcoes = {
+        "🏛️ Tesouro Selic (~14,25% a.a.)": 14.25,
+        "🏦 CDB 100% CDI (~14,15% a.a.)": 14.15,
+        "🏦 CDB 120% CDI (~17% a.a.)": 17.0,
+        "🏠 LCI/LCA 90% CDI (isento IR)": 12.7,
+        "💰 Poupança (~7,5% a.a.)": 7.5,
+    }
+    
+    col_op1, col_op2 = st.columns(2)
+    with col_op1:
+        st.markdown("**Opção A**")
+        opcao_a = st.selectbox("Escolha", list(opcoes.keys()), index=0, key="op_a", label_visibility="collapsed")
+        taxa_a = opcoes[opcao_a]
+        is_lci_a = "LCI" in opcao_a
+        
+    with col_op2:
+        st.markdown("**Opção B**")
+        opcao_b = st.selectbox("Escolha", list(opcoes.keys()), index=4, key="op_b", label_visibility="collapsed")
+        taxa_b = opcoes[opcao_b]
+        is_lci_b = "LCI" in opcao_b
+
+    if (capital > 0 or aporte > 0) and prazo > 0:
+        sim_a = simular_investimento(capital, aporte, prazo, taxa_a)
+        if is_lci_a:
+            sim_a["ir"] = 0; sim_a["aliquota"] = 0; sim_a["liquido"] = sim_a["bruto"]
+            
+        sim_b = simular_investimento(capital, aporte, prazo, taxa_b)
+        if is_lci_b:
+            sim_b["ir"] = 0; sim_b["aliquota"] = 0; sim_b["liquido"] = sim_b["bruto"]
+
+        # Mostrar Comparativo
+        diff = sim_a['liquido'] - sim_b['liquido']
+        vencedor = "Opção A" if diff > 0 else "Opção B" if diff < 0 else "Empate"
+        
+        st.markdown(f"""
+            <div style="text-align:center; padding: 1rem; background: rgba(0,212,170,0.05); border: 1px solid rgba(0,212,170,0.2); border-radius: 12px; margin: 1rem 0;">
+                <div style="font-size: 0.9rem; color: var(--text2);">A melhor opção é <b>{vencedor}</b></div>
+                <div style="font-size: 1.2rem; font-weight: 700; color: #00d4aa; margin-top: 0.2rem;">Diferença de {fmt(abs(diff))}</div>
+            </div>
+        """, unsafe_allow_html=True)
+        
+        # Tabela Comparativa Visual
+        c_r1, c_r2 = st.columns(2)
+        with c_r1:
             st.markdown(f"""
-                <div class="glass-card" style="margin-top:0.5rem;">
-                    <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;">
-                        <div style="text-align:center;flex:1;"><div style="font-size:0.65rem;color:#8b95a5;">Total Investido</div><div style="font-size:0.9rem;font-weight:700;color:#f0f2f5;">{fmt(sim['investido'])}</div></div>
-                        <div style="text-align:center;flex:1;"><div style="font-size:0.65rem;color:#8b95a5;">Rendimento Bruto</div><div style="font-size:0.9rem;font-weight:700;color:#f0f2f5;">{fmt(sim['rendimento'])}</div></div>
-                        <div style="text-align:center;flex:1;"><div style="font-size:0.65rem;color:#8b95a5;">IR ({sim['aliquota']:.1f}%)</div><div style="font-size:0.9rem;font-weight:700;color:#ff4b6e;">- {fmt(sim['ir'])}</div></div>
+                <div class="glass-card" style="border-left: 4px solid {'#00d4aa' if diff >= 0 else '#8b95a5'};">
+                    <div style="font-size: 0.8rem; font-weight: 700; color: #fff; margin-bottom: 0.5rem;">{opcao_a}</div>
+                    <div style="display:flex; justify-content:space-between; margin-bottom:0.2rem;">
+                        <span style="font-size:0.75rem; color:var(--text2);">Investido:</span>
+                        <span style="font-size:0.75rem; font-weight:600;">{fmt(sim_a['investido'])}</span>
+                    </div>
+                    <div style="display:flex; justify-content:space-between; margin-bottom:0.2rem;">
+                        <span style="font-size:0.75rem; color:var(--text2);">Rend. Bruto:</span>
+                        <span style="font-size:0.75rem; font-weight:600; color:var(--green);">{fmt(sim_a['rendimento'])}</span>
+                    </div>
+                    <div style="display:flex; justify-content:space-between; margin-bottom:0.5rem; padding-bottom:0.5rem; border-bottom: 1px solid rgba(255,255,255,0.05);">
+                        <span style="font-size:0.75rem; color:var(--text2);">IR ({sim_a['aliquota']:.1f}%):</span>
+                        <span style="font-size:0.75rem; font-weight:600; color:var(--red);">- {fmt(sim_a['ir'])}</span>
+                    </div>
+                    <div style="display:flex; justify-content:space-between; align-items:flex-end;">
+                        <span style="font-size:0.8rem; text-transform:uppercase; color:var(--text3);">Líquido</span>
+                        <span style="font-size:1.3rem; font-weight:800; color:#fff;">{fmt(sim_a['liquido'])}</span>
+                    </div>
+                </div>
+            """, unsafe_allow_html=True)
+            
+        with c_r2:
+            st.markdown(f"""
+                <div class="glass-card" style="border-left: 4px solid {'#00d4aa' if diff < 0 else '#8b95a5'};">
+                    <div style="font-size: 0.8rem; font-weight: 700; color: #fff; margin-bottom: 0.5rem;">{opcao_b}</div>
+                    <div style="display:flex; justify-content:space-between; margin-bottom:0.2rem;">
+                        <span style="font-size:0.75rem; color:var(--text2);">Investido:</span>
+                        <span style="font-size:0.75rem; font-weight:600;">{fmt(sim_b['investido'])}</span>
+                    </div>
+                    <div style="display:flex; justify-content:space-between; margin-bottom:0.2rem;">
+                        <span style="font-size:0.75rem; color:var(--text2);">Rend. Bruto:</span>
+                        <span style="font-size:0.75rem; font-weight:600; color:var(--green);">{fmt(sim_b['rendimento'])}</span>
+                    </div>
+                    <div style="display:flex; justify-content:space-between; margin-bottom:0.5rem; padding-bottom:0.5rem; border-bottom: 1px solid rgba(255,255,255,0.05);">
+                        <span style="font-size:0.75rem; color:var(--text2);">IR ({sim_b['aliquota']:.1f}%):</span>
+                        <span style="font-size:0.75rem; font-weight:600; color:var(--red);">- {fmt(sim_b['ir'])}</span>
+                    </div>
+                    <div style="display:flex; justify-content:space-between; align-items:flex-end;">
+                        <span style="font-size:0.8rem; text-transform:uppercase; color:var(--text3);">Líquido</span>
+                        <span style="font-size:1.3rem; font-weight:800; color:#fff;">{fmt(sim_b['liquido'])}</span>
                     </div>
                 </div>
             """, unsafe_allow_html=True)
 
-    # ── Gráfico de evolução ───────────────────────────────────────────
-    if taxa > 0 and (capital > 0 or aporte > 0):
+        # ── Gráfico de evolução comparativo ───────────────────────────────────────────
         st.markdown("<br>", unsafe_allow_html=True)
-        sec("📈", "Evolução do Patrimônio")
-        hist = sim["historico"]
+        sec("📈", "Evolução do Patrimônio Lado a Lado")
+        
+        hist_a = sim_a["historico"]
+        hist_b = sim_b["historico"]
+        
         fig_inv = go.Figure()
+        
+        # Opção A
         fig_inv.add_trace(go.Scatter(
-            x=[h["mes"] for h in hist], y=[h["saldo"] for h in hist],
-            name="Saldo", mode="lines", line=dict(color="#00d4aa", width=2.5),
+            x=[h["mes"] for h in hist_a], y=[h["saldo"] for h in hist_a],
+            name="Opção A", mode="lines", line=dict(color="#00d4aa", width=2.5),
             fill="tozeroy", fillcolor="rgba(0,212,170,0.08)",
         ))
+        
+        # Opção B
         fig_inv.add_trace(go.Scatter(
-            x=[h["mes"] for h in hist], y=[h["investido"] for h in hist],
-            name="Investido", mode="lines", line=dict(color="#4e8cff", width=2, dash="dash"),
+            x=[h["mes"] for h in hist_b], y=[h["saldo"] for h in hist_b],
+            name="Opção B", mode="lines", line=dict(color="#4e8cff", width=2.5),
+            fill="tozeroy", fillcolor="rgba(78,140,255,0.05)",
         ))
+        
+        # Investido
+        fig_inv.add_trace(go.Scatter(
+            x=[h["mes"] for h in hist_a], y=[h["investido"] for h in hist_a],
+            name="Investido", mode="lines", line=dict(color="#8b95a5", width=2, dash="dash"),
+        ))
+        
         fig_inv.update_layout(
-            **PLOTLY_LAYOUT, height=300,
+            **PLOTLY_LAYOUT, height=350,
             xaxis=dict(title="Mês", showgrid=False),
             yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.03)"),
+            hovermode="x unified"
         )
-        st.plotly_chart(fig_inv, key="inv_chart")
+        st.plotly_chart(fig_inv, key="inv_comp_chart", width='stretch')
 
     # ── Guia Rápido ───────────────────────────────────────────────────
     st.markdown("<br>", unsafe_allow_html=True)
@@ -218,7 +351,7 @@ def render(ctx):
                     • Protegido pelo FGC<br>
                     • ~90% CDI líquido<br>
                     • Carência de 90 dias<br>
-                    • <strong style="color:#a855f7;">Melhor líquido em prazo curto</strong>
+                    • <strong style="color:#a855f7;">Melhor líquido curto/médio prazo</strong>
                 </div>
             </div>
         """, unsafe_allow_html=True)

@@ -86,4 +86,4 @@ def calcular_score(conn, rec, desp, simples, prefixo, mes, ano, saldo_reserva=0)
     elif fontes == 1:
         pontos += 4
 
-    return min(round(pontos), 100)
+    return max(0, min(round(pontos), 100))

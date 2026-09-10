@@ -1,5 +1,6 @@
 """
 tabs/orcamento.py — Aba de Orçamento mensal.
+Versão 2.0: Tooltips contextuais, empty state premium.
 """
 import streamlit as st
 import pandas as pd
@@ -7,6 +8,7 @@ import pandas as pd
 from core.utils import fmt, MESES_PT
 from core.models import get_orcamentos_mes, get_categorias_despesa, get_gastos_categorias_mes
 from components.cards import sec
+from components.tooltip_helper import get_tooltip
 
 
 def render(ctx):
@@ -18,7 +20,7 @@ def render(ctx):
     saldo_total = ctx["saldo_total"]
 
     # ── Alocação Base Zero (Fase 3.1) ─────────────────────────────────
-    sec("📊", f"Orçamento de {MESES_PT[mes_sel]}")
+    sec("📊", f"Orçamento de {MESES_PT[mes_sel]}", tooltip="base_zero")
     orc_data = get_orcamentos_mes(conn, mes_sel, ano_sel)
 
     if not orc_data.empty:
@@ -121,7 +123,13 @@ def render(ctx):
         """, unsafe_allow_html=True)
 
     else:
-        st.info("Nenhum orçamento. Adicione abaixo.")
+        st.markdown("""
+            <div class="empty-state">
+                <div class="empty-icon">📊</div>
+                <div class="empty-title">Nenhum orçamento definido</div>
+                <div class="empty-desc">Defina limites de gasto por categoria para controlar seus "potes" mensais. Adicione abaixo!</div>
+            </div>
+        """, unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
 

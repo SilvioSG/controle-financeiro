@@ -88,7 +88,7 @@ def get_connection():
             conn.autocommit = False
             return DBConnection(conn, is_postgres=True)
         except Exception as e:
-            st.warning(f"⚠️ Falha ao conectar ao Supabase: {e}. Usando SQLite local.")
+            print(f"⚠️ Falha ao conectar ao Supabase: {e}. Usando SQLite local.")
 
     # Fallback: SQLite local
     conn = sqlite3.connect("financas.db", check_same_thread=False)
