@@ -54,14 +54,7 @@ def hero_card(label, value, change_pct=None, change_label="vs mês anterior", su
         arrow = "↑" if change_pct >= 0 else "↓"
         change_html = f'<div class="hero-change {cls}">{arrow} {abs(change_pct):.1f}% {change_label}</div>'
     
-    return f"""
-    <div class="hero-card">
-        <div class="hero-label">{label} <span style="margin-left:auto;font-size:0.6rem;color:var(--text3);">{live_html}</span></div>
-        <div class="hero-value">{value}</div>
-        {change_html}
-        <div class="hero-sub">{sub_text}</div>
-    </div>
-    """
+    return f'<div class="hero-card"><div class="hero-label">{label} <span style="margin-left:auto;font-size:0.6rem;color:var(--text3);">{live_html}</span></div><div class="hero-value">{value}</div>{change_html}<div class="hero-sub">{sub_text}</div></div>'
 
 
 def alert_card(icon, message, level="info"):
@@ -115,12 +108,7 @@ def ring_progress(percentage, size=70, stroke=6, color="var(--green)", label="")
     
     display_label = label if label else f'{percentage:.0f}%'
     
-    return f"""
-    <div class="ring-progress" style="width:{size}px;height:{size}px;position:relative;">
-        <img src="data:image/svg+xml;base64,{b64}" width="{size}" height="{size}" style="display:block;">
-        <span class="ring-value" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:0.7rem;font-weight:700;color:#f0f2f5;">{display_label}</span>
-    </div>
-    """
+    return f'<div class="ring-progress" style="width:{size}px;height:{size}px;position:relative;"><img src="data:image/svg+xml;base64,{b64}" width="{size}" height="{size}" style="display:block;"><span class="ring-value" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:0.7rem;font-weight:700;color:#f0f2f5;">{display_label}</span></div>'
 
 
 def empty_state(icon, title, description, cta_text="", cta_action=""):
@@ -129,14 +117,7 @@ def empty_state(icon, title, description, cta_text="", cta_action=""):
     if cta_text:
         cta_html = f'<div style="margin-top:0.5rem"><span class="empty-cta">{cta_text}</span></div>'
     
-    return f"""
-    <div class="empty-state">
-        <div class="empty-icon">{icon}</div>
-        <div class="empty-title">{title}</div>
-        <div class="empty-desc">{description}</div>
-        {cta_html}
-    </div>
-    """
+    return f'<div class="empty-state"><div class="empty-icon">{icon}</div><div class="empty-title">{title}</div><div class="empty-desc">{description}</div>{cta_html}</div>'
 
 
 def badge_card(emoji, title, desc, color):
