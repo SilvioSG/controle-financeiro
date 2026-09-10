@@ -89,8 +89,8 @@ with st.sidebar:
             conn.execute("""
                 UPDATE metas 
                 SET valor_atual = ? 
-                WHERE LOWER(nome) LIKE '%reserva%' OR LOWER(nome) LIKE '%emergência%'
-            """, (saldo_reserva,))
+                WHERE LOWER(nome) LIKE ? OR LOWER(nome) LIKE ?
+            """, (saldo_reserva, '%reserva%', '%emergência%'))
             conn.commit()
 
         rec_mes = conn.execute(

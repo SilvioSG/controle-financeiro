@@ -31,27 +31,51 @@ class DBConnection:
     def execute(self, sql, params=None):
         with self.lock:
             cur = self._conn.cursor()
-            self._set_rls(cur)
-            if self.is_postgres:
-                sql = re.sub(r'\?', '%s', sql)
-            if params:
-                cur.execute(sql, params)
-            else:
-                cur.execute(sql)
-            return cur
+            try:
+                self._set_rls(cur)
+                if self.is_postgres:
+                    sql = re.sub(r'\?', '%s', sql)
+                if params:
+                    cur.execute(sql, params)
+                else:
+                    cur.execute(sql)
+                return cur
+            except Exception as e:
+                if self.is_postgres:
+                    try:
+                        self._conn.rollback()
+                    except Exception:
+                        pass
+                raise e
 
     def executemany(self, sql, params_list):
         with self.lock:
             cur = self._conn.cursor()
-            self._set_rls(cur)
-            if self.is_postgres:
-                sql = re.sub(r'\?', '%s', sql)
-                params_list = [tuple(p) if isinstance(p, list) else p for p in params_list]
-            cur.executemany(sql, params_list)
-            return cur
+            try:
+                self._set_rls(cur)
+                if self.is_postgres:
+                    sql = re.sub(r'\?', '%s', sql)
+                    params_list = [tuple(p) if isinstance(p, list) else p for p in params_list]
+                cur.executemany(sql, params_list)
+                return cur
+            except Exception as e:
+                if self.is_postgres:
+                    try:
+                        self._conn.rollback()
+                    except Exception:
+                        pass
+                raise e
 
     def commit(self):
-        self._conn.commit()
+        with self.lock:
+            self._conn.commit()
+
+    def rollback(self):
+        with self.lock:
+            try:
+                self._conn.rollback()
+            except Exception:
+                pass
 
     def cursor(self):
         return self._conn.cursor()
@@ -102,17 +126,26 @@ def get_connection():
 
 # ─── Inicialização do Banco ──────────────────────────────────────────────────
 
+_db_initialized = False
+
+
 def init_db(conn):
     """Cria todas as tabelas necessárias (compatível SQLite e PostgreSQL)."""
+    global _db_initialized
+    if _db_initialized:
+        return
+
     try:
         conn.rollback() # Reset transaction state in case of previous errors
-    except:
+    except Exception:
         pass
 
     if getattr(conn, 'is_postgres', False):
         _init_db_postgres(conn)
     else:
         _init_db_sqlite(conn)
+
+    _db_initialized = True
 
 
 def _init_db_sqlite(conn):
@@ -239,9 +272,7 @@ def _init_db_sqlite(conn):
 
 def _init_db_postgres(conn):
     """Cria tabelas no PostgreSQL (Supabase)."""
-    c = conn.cursor()
-
-    c.execute("""CREATE TABLE IF NOT EXISTS contas (
+    conn.execute("""CREATE TABLE IF NOT EXISTS contas (
         id SERIAL PRIMARY KEY,
         nome TEXT NOT NULL,
         tipo TEXT NOT NULL,
@@ -252,14 +283,14 @@ def _init_db_postgres(conn):
         dia_vencimento INTEGER DEFAULT 10
     )""")
 
-    c.execute("""CREATE TABLE IF NOT EXISTS categorias (
+    conn.execute("""CREATE TABLE IF NOT EXISTS categorias (
         id SERIAL PRIMARY KEY,
         nome TEXT NOT NULL,
         icone TEXT DEFAULT '📌',
         tipo TEXT DEFAULT 'ambos'
     )""")
 
-    c.execute("""CREATE TABLE IF NOT EXISTS transacoes (
+    conn.execute("""CREATE TABLE IF NOT EXISTS transacoes (
         id SERIAL PRIMARY KEY,
         tipo TEXT NOT NULL,
         descricao TEXT NOT NULL,
@@ -274,21 +305,24 @@ def _init_db_postgres(conn):
 
     # Migração: Adicionar coluna se não existir (Postgres)
     try:
-        c.execute("SAVEPOINT migration_sp")
-        c.execute("ALTER TABLE transacoes ADD COLUMN IF NOT EXISTS is_transferencia INTEGER DEFAULT 0")
-        c.execute("UPDATE transacoes SET is_transferencia = 1 WHERE descricao LIKE 'Transferência%%' AND is_transferencia = 0")
-        c.execute("RELEASE SAVEPOINT migration_sp")
+        col_check = conn.execute(
+            "SELECT 1 FROM information_schema.columns WHERE table_name='transacoes' AND column_name='is_transferencia'"
+        ).fetchone()
+        if not col_check:
+            conn.execute("ALTER TABLE transacoes ADD COLUMN is_transferencia INTEGER DEFAULT 0")
+        conn.execute("UPDATE transacoes SET is_transferencia = 1 WHERE descricao LIKE ? AND is_transferencia = 0", ("Transferência%",))
+        conn.commit()
     except Exception:
-        c.execute("ROLLBACK TO SAVEPOINT migration_sp")
+        conn.rollback()
 
-    c.execute("""CREATE TABLE IF NOT EXISTS metas (
+    conn.execute("""CREATE TABLE IF NOT EXISTS metas (
         id SERIAL PRIMARY KEY,
         nome TEXT NOT NULL,
         valor_meta DOUBLE PRECISION NOT NULL,
         valor_atual DOUBLE PRECISION DEFAULT 0
     )""")
 
-    c.execute("""CREATE TABLE IF NOT EXISTS orcamentos (
+    conn.execute("""CREATE TABLE IF NOT EXISTS orcamentos (
         id SERIAL PRIMARY KEY,
         categoria_id INTEGER REFERENCES categorias(id),
         valor_limite DOUBLE PRECISION NOT NULL,
@@ -297,19 +331,19 @@ def _init_db_postgres(conn):
         UNIQUE(categoria_id, mes, ano)
     )""")
 
-    c.execute("""CREATE TABLE IF NOT EXISTS tags (
+    conn.execute("""CREATE TABLE IF NOT EXISTS tags (
         id SERIAL PRIMARY KEY,
         nome TEXT NOT NULL UNIQUE,
         cor TEXT DEFAULT '#4e8cff'
     )""")
 
-    c.execute("""CREATE TABLE IF NOT EXISTS transacao_tags (
+    conn.execute("""CREATE TABLE IF NOT EXISTS transacao_tags (
         transacao_id INTEGER REFERENCES transacoes(id) ON DELETE CASCADE,
         tag_id INTEGER REFERENCES tags(id) ON DELETE CASCADE,
         PRIMARY KEY (transacao_id, tag_id)
     )""")
 
-    c.execute("""CREATE TABLE IF NOT EXISTS recorrentes_log (
+    conn.execute("""CREATE TABLE IF NOT EXISTS recorrentes_log (
         id SERIAL PRIMARY KEY,
         prefixo_mes TEXT NOT NULL,
         transacao_origem_id INTEGER,
@@ -317,12 +351,12 @@ def _init_db_postgres(conn):
         UNIQUE(prefixo_mes, transacao_origem_id)
     )""")
 
-    c.execute("""CREATE TABLE IF NOT EXISTS mapeamento_categorias (
+    conn.execute("""CREATE TABLE IF NOT EXISTS mapeamento_categorias (
         palavra TEXT PRIMARY KEY,
         categoria_id INTEGER REFERENCES categorias(id)
     )""")
 
-    c.execute("""CREATE TABLE IF NOT EXISTS atalhos (
+    conn.execute("""CREATE TABLE IF NOT EXISTS atalhos (
         id SERIAL PRIMARY KEY,
         descricao TEXT NOT NULL,
         valor DOUBLE PRECISION NOT NULL,
@@ -332,10 +366,10 @@ def _init_db_postgres(conn):
         tipo TEXT DEFAULT 'despesa'
     )""")
 
-    c.execute("CREATE INDEX IF NOT EXISTS idx_tx_data_tipo_pg ON transacoes (data, tipo)")
-    c.execute("CREATE INDEX IF NOT EXISTS idx_tx_conta_pg ON transacoes (conta_id)")
-    c.execute("CREATE INDEX IF NOT EXISTS idx_tx_cat_pg ON transacoes (categoria_id)")
-    c.execute("CREATE INDEX IF NOT EXISTS idx_tx_rec_pg ON transacoes (recorrente, data)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_tx_data_tipo_pg ON transacoes (data, tipo)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_tx_conta_pg ON transacoes (conta_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_tx_cat_pg ON transacoes (categoria_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_tx_rec_pg ON transacoes (recorrente, data)")
 
     conn.commit()
 
