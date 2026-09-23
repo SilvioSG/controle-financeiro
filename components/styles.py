@@ -7,7 +7,7 @@ import streamlit as st
 
 def inject_css():
     """Injeta o CSS completo do tema premium dark v2."""
-    st.markdown("""
+    st.html("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
 
@@ -1101,7 +1101,7 @@ html, body, [data-testid="stAppViewContainer"], [data-testid="stApp"] {
     .activity-feed { padding-left: 0.8rem; }
 }
 </style>
-""", unsafe_allow_html=True)
+""")
 
     # ── Injeção de tags PWA (Fase 1.1) ──
     st.html("""

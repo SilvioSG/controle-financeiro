@@ -40,13 +40,13 @@ def render(ctx):
     cartoes = read_sql("SELECT * FROM contas WHERE tipo = 'Cartão de Crédito'", conn)
 
     if cartoes.empty:
-        st.markdown("""
+        st.html("""
             <div class="empty-state">
                 <div class="empty-icon">💳</div>
                 <div class="empty-title">Nenhum cartão cadastrado</div>
                 <div class="empty-desc">Vá até a aba 🏦 Contas para adicionar um cartão de crédito e acompanhar suas faturas aqui.</div>
             </div>
-        """, unsafe_allow_html=True)
+        """)
         return
 
     mes_sel = ctx.get("mes_sel", date.today().month)
@@ -96,7 +96,7 @@ def render(ctx):
                                        color="#a855f7" if pct_uso < 70 else ("#f59e0b" if pct_uso < 90 else "#ff4b6e"),
                                        label=f"{pct_uso:.0f}%")
             
-            st.markdown(f"""
+            st.html(f"""
             <div class="glass-card" style="border-left: 4px solid {color_from};">
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">
                     <div>
@@ -117,7 +117,7 @@ def render(ctx):
                     <div class="rule-bar-fill" style="width:{pct_uso}%;background:linear-gradient(90deg,{color_from},{color_to});"></div>
                 </div>
             </div>
-            """, unsafe_allow_html=True)
+            """)
 
         if fatura_mensal > 0:
             with st.expander(f"💳 Pagar Fatura de {mes_sel:02d}/{ano_sel} - {c['nome']}"):
@@ -153,4 +153,4 @@ def render(ctx):
                             st.success("Fatura paga com sucesso!")
                             st.rerun()
         
-        st.markdown("<br>", unsafe_allow_html=True)
+        st.html("<br>")

@@ -85,7 +85,7 @@ def render(ctx):
         saldo_livre_orcar = saldo_total - t_orc
         cor_base_zero = "#00d4aa" if saldo_livre_orcar >= 0 else "#ff4b6e"
         
-        st.markdown(f"""
+        st.html(f"""
             <div class="glass-card" style="margin-top:1rem; border-left: 4px solid {cor_base_zero};">
                 <div style="font-size:0.75rem; color:#8b95a5; text-transform:uppercase; font-weight:700; margin-bottom:0.5rem;">🧠 Orçamento Base Zero</div>
                 <div style="display:flex; justify-content:space-between; flex-wrap:wrap; gap:1rem;">
@@ -120,18 +120,18 @@ def render(ctx):
                     </div>
                 </div>
             </div>
-        """, unsafe_allow_html=True)
+        """)
 
     else:
-        st.markdown("""
+        st.html("""
             <div class="empty-state">
                 <div class="empty-icon">📊</div>
                 <div class="empty-title">Nenhum orçamento definido</div>
                 <div class="empty-desc">Defina limites de gasto por categoria para controlar seus "potes" mensais. Adicione abaixo!</div>
             </div>
-        """, unsafe_allow_html=True)
+        """)
 
-    st.markdown("<br>", unsafe_allow_html=True)
+    st.html("<br>")
 
     # ── Definir Limite ────────────────────────────────────────────────
     sec("➕", "Definir Limite")

@@ -63,7 +63,7 @@ def render(ctx):
                             conn.commit()
                             st.rerun()
 
-    st.markdown("<br>", unsafe_allow_html=True)
+    st.html("<br>")
 
     # ── Nova Categoria ────────────────────────────────────────────────
     sec("➕", "Nova Categoria")

@@ -58,20 +58,20 @@ def render(ctx):
                         Responda em formato Markdown, usando emojis e destaque em negrito onde for importante. Seja encorajador!
                         """
                         response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
-                        st.markdown(f'''
+                        st.html(f'''
                         <div class="glass-card" style="border-left: 4px solid var(--purple); background: rgba(168,85,247,0.05); margin-top: 1rem;">
                             <h4 style="margin-top:0; color:var(--purple); display:flex; align-items:center; gap:0.5rem;">🤖 Consultor Financeiro Inteligente</h4>
                             <div style="font-size: 0.9rem; line-height: 1.6; color: var(--text);">
                                 {response.text}
                             </div>
                         </div>
-                        ''', unsafe_allow_html=True)
+                        ''')
                     except Exception as e:
                         st.error(f"Erro na comunicação com a IA: {e}. Verifique sua chave de API e sua conexão.")
 
     # ── Dica de reserva ───────────────────────────────────────────────
     if saldo_reserva > 0:
-        st.markdown(f"""
+        st.html(f"""
             <div class="insight-card" style="margin: 1rem 0 1.5rem 0; border-color: #4e8cff; background: rgba(78,140,255,0.05);">
                 <span class="insight-icon">🛡️</span>
                 <div>
@@ -82,9 +82,9 @@ def render(ctx):
                     • <strong>CDB 100% CDI (Liquidez Diária):</strong> Rende quase o mesmo que o Selic e geralmente o saque é instantâneo no seu banco (ex: caixinhas do Nubank, CDB Banco Inter).</div>
                 </div>
             </div>
-        """, unsafe_allow_html=True)
+        """)
     else:
-        st.markdown(f"""
+        st.html(f"""
             <div class="insight-card" style="margin: 1rem 0 1.5rem 0; border-color: #f59e0b; background: rgba(245,158,11,0.05);">
                 <span class="insight-icon">⚠️</span>
                 <div>
@@ -92,12 +92,12 @@ def render(ctx):
                     <div class="insight-text" style="margin-top: 0.4rem;">Antes de arriscar em investimentos longos, construa sua reserva (idealmente 6x seus custos mensais). Guarde-a sempre no <strong>Tesouro Selic</strong> ou <strong>CDB 100% CDI de Liquidez Diária</strong> para ter o dinheiro na mão quando a emergência bater.</div>
                 </div>
             </div>
-        """, unsafe_allow_html=True)
+        """)
 
     # ── Flowchart Onde Investir ───────────────────────────────────────────
-    st.markdown("<br>", unsafe_allow_html=True)
+    st.html("<br>")
     with st.expander("🗺️ Mapa: Onde Investir?", expanded=False):
-        st.markdown("""
+        st.html("""
         <div style="font-family: 'Inter', sans-serif; max-width: 700px; margin: 0 auto; color: var(--text);">
             <div style="background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; padding: 1.5rem; position: relative;">
                 
@@ -166,10 +166,10 @@ def render(ctx):
                 
             </div>
         </div>
-        """, unsafe_allow_html=True)
+        """)
 
     # ── Simulador Side-by-Side ─────────────────────────────────────────────────────
-    st.markdown("<br>", unsafe_allow_html=True)
+    st.html("<br>")
     sec("⚖️", "Comparador de Investimentos (Side-by-Side)")
     st.caption("Compare lado a lado duas opções de renda fixa.")
     
@@ -217,17 +217,17 @@ def render(ctx):
         diff = sim_a['liquido'] - sim_b['liquido']
         vencedor = "Opção A" if diff > 0 else "Opção B" if diff < 0 else "Empate"
         
-        st.markdown(f"""
+        st.html(f"""
             <div style="text-align:center; padding: 1rem; background: rgba(0,212,170,0.05); border: 1px solid rgba(0,212,170,0.2); border-radius: 12px; margin: 1rem 0;">
                 <div style="font-size: 0.9rem; color: var(--text2);">A melhor opção é <b>{vencedor}</b></div>
                 <div style="font-size: 1.2rem; font-weight: 700; color: #00d4aa; margin-top: 0.2rem;">Diferença de {fmt(abs(diff))}</div>
             </div>
-        """, unsafe_allow_html=True)
+        """)
         
         # Tabela Comparativa Visual
         c_r1, c_r2 = st.columns(2)
         with c_r1:
-            st.markdown(f"""
+            st.html(f"""
                 <div class="glass-card" style="border-left: 4px solid {'#00d4aa' if diff >= 0 else '#8b95a5'};">
                     <div style="font-size: 0.8rem; font-weight: 700; color: #fff; margin-bottom: 0.5rem;">{opcao_a}</div>
                     <div style="display:flex; justify-content:space-between; margin-bottom:0.2rem;">
@@ -247,10 +247,10 @@ def render(ctx):
                         <span style="font-size:1.3rem; font-weight:800; color:#fff;">{fmt(sim_a['liquido'])}</span>
                     </div>
                 </div>
-            """, unsafe_allow_html=True)
+            """)
             
         with c_r2:
-            st.markdown(f"""
+            st.html(f"""
                 <div class="glass-card" style="border-left: 4px solid {'#00d4aa' if diff < 0 else '#8b95a5'};">
                     <div style="font-size: 0.8rem; font-weight: 700; color: #fff; margin-bottom: 0.5rem;">{opcao_b}</div>
                     <div style="display:flex; justify-content:space-between; margin-bottom:0.2rem;">
@@ -270,10 +270,10 @@ def render(ctx):
                         <span style="font-size:1.3rem; font-weight:800; color:#fff;">{fmt(sim_b['liquido'])}</span>
                     </div>
                 </div>
-            """, unsafe_allow_html=True)
+            """)
 
         # ── Gráfico de evolução comparativo ───────────────────────────────────────────
-        st.markdown("<br>", unsafe_allow_html=True)
+        st.html("<br>")
         sec("📈", "Evolução do Patrimônio Lado a Lado")
         
         hist_a = sim_a["historico"]
@@ -310,11 +310,11 @@ def render(ctx):
         st.plotly_chart(fig_inv, key="inv_comp_chart", width='stretch')
 
     # ── Guia Rápido ───────────────────────────────────────────────────
-    st.markdown("<br>", unsafe_allow_html=True)
+    st.html("<br>")
     sec("📚", "Guia Rápido de Investimentos")
     col_i1, col_i2, col_i3 = st.columns(3)
     with col_i1:
-        st.markdown("""
+        st.html("""
             <div class="glass-card">
                 <div style="font-size:1.3rem;margin-bottom:0.4rem;">🏛️</div>
                 <div style="font-size:0.85rem;font-weight:700;color:#f0f2f5;">Tesouro Selic</div>
@@ -326,9 +326,9 @@ def render(ctx):
                     • <strong style="color:#00d4aa;">Ideal para reserva</strong>
                 </div>
             </div>
-        """, unsafe_allow_html=True)
+        """)
     with col_i2:
-        st.markdown("""
+        st.html("""
             <div class="glass-card">
                 <div style="font-size:1.3rem;margin-bottom:0.4rem;">🏦</div>
                 <div style="font-size:0.85rem;font-weight:700;color:#f0f2f5;">CDB 100-120% CDI</div>
@@ -340,9 +340,9 @@ def render(ctx):
                     • <strong style="color:#4e8cff;">Bom rendimento</strong>
                 </div>
             </div>
-        """, unsafe_allow_html=True)
+        """)
     with col_i3:
-        st.markdown("""
+        st.html("""
             <div class="glass-card">
                 <div style="font-size:1.3rem;margin-bottom:0.4rem;">🏠</div>
                 <div style="font-size:0.85rem;font-weight:700;color:#f0f2f5;">LCI / LCA</div>
@@ -354,4 +354,4 @@ def render(ctx):
                     • <strong style="color:#a855f7;">Melhor líquido curto/médio prazo</strong>
                 </div>
             </div>
-        """, unsafe_allow_html=True)
+        """)

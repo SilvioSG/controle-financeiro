@@ -37,7 +37,7 @@ def check_password() -> bool:
         return True
 
     # ─── Tela de Login ────────────────────────────────────────────────────
-    st.markdown("""
+    st.html("""
     <style>
     .login-container {
         max-width: 400px;
@@ -74,13 +74,13 @@ def check_password() -> bool:
         text-transform: uppercase;
     }
     </style>
-    """, unsafe_allow_html=True)
+    """)
 
     # Container centralizado
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        st.markdown('<div class="login-title">📊 Financeiro</div>', unsafe_allow_html=True)
-        st.markdown('<div class="login-subtitle">Controle Pessoal na Nuvem</div>', unsafe_allow_html=True)
+        st.html('<div class="login-title">📊 Financeiro</div>')
+        st.html('<div class="login-subtitle">Controle Pessoal na Nuvem</div>')
 
         tab1, tab2 = st.tabs(["🔑 Login", "📝 Criar Conta"])
         

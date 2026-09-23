@@ -127,14 +127,14 @@ def render(ctx):
     for i, (icon, nome, valor, cor) in enumerate(pilares):
         with cols_p[i]:
             ring_html = ring_progress(valor, size=45, stroke=4, color=cor, label=f"{valor:.0f}")
-            st.markdown(f"""
+            st.html(f"""
                 <div class="glass-card" style="text-align:center;padding:0.7rem;">
                     {ring_html}
                     <div style="font-size:0.68rem;color:var(--text2);margin-top:0.3rem;">{icon} {nome}</div>
                 </div>
-            """, unsafe_allow_html=True)
+            """)
 
-    st.markdown("<br>", unsafe_allow_html=True)
+    st.html("<br>")
 
     # ══════════════════════════════════════════════════════════════════
     # DICAS PERSONALIZADAS (com prioridade)
@@ -155,7 +155,7 @@ def render(ctx):
             priority_cls = "positive"
             priority_text = "POSITIVO"
         
-        st.markdown(f"""
+        st.html(f"""
             <div class="insight-card" style="animation-delay:{idx * 0.08}s;">
                 <span class="insight-icon">{icone}</span>
                 <div>
@@ -164,9 +164,9 @@ def render(ctx):
                     <div class="insight-label">{label}</div>
                 </div>
             </div>
-        """, unsafe_allow_html=True)
+        """)
 
-    st.markdown("<br>", unsafe_allow_html=True)
+    st.html("<br>")
     
     # ── IA Consultor de Custos ─────────────────────────────────────────
     with st.expander("🤖 Consultor de Redução de Custos (IA Gemini)", expanded=False):
@@ -222,19 +222,19 @@ def render(ctx):
                                 contents=prompt
                             )
                             
-                            st.markdown("""
+                            st.html("""
                             <div style="background:rgba(168,85,247,0.1); border-left:4px solid var(--purple); padding:1rem; border-radius:8px; margin-top:1rem;">
                                 <h4 style="color:var(--purple); margin-top:0;">🤖 Análise da I.A. Concluída</h4>
-                            """, unsafe_allow_html=True)
+                            """)
                             
                             st.markdown(response.text)
                             
-                            st.markdown("</div>", unsafe_allow_html=True)
+                            st.markdown("</div>")
                             
                     except Exception as e:
                         st.error(f"Erro ao consultar a IA: {e}")
 
-    st.markdown("<br>", unsafe_allow_html=True)
+    st.html("<br>")
 
     # ══════════════════════════════════════════════════════════════════
     # COMPARATIVO COM MÊS ANTERIOR (melhorado)
@@ -263,7 +263,7 @@ def render(ctx):
         else:
             var, seta, cor_var = 0, "–", "#8b95a5"
 
-        st.markdown(f"""
+        st.html(f"""
             <div class="glass-card" style="text-align: center;">
                 <div style="font-size: 1.3rem; margin-bottom: 0.3rem;">{icon}</div>
                 <div style="font-size: 0.7rem; color: var(--text2); text-transform: uppercase;">{label}</div>
@@ -273,7 +273,7 @@ def render(ctx):
                 </div>
                 <div style="font-size: 0.68rem; color: var(--text3);">Anterior: {fmt(anterior)}</div>
             </div>
-        """, unsafe_allow_html=True)
+        """)
 
     with col_c1:
         comp_card("Receitas", rec_mes, rec_ant, "📈")
@@ -282,7 +282,7 @@ def render(ctx):
     with col_c3:
         comp_card("Balanço", balanco_mes, rec_ant - desp_ant - rec_ant * TAXA_SIMPLES, "💰")
 
-    st.markdown("<br>", unsafe_allow_html=True)
+    st.html("<br>")
 
     # ── Previsão de gastos ────────────────────────────────────────────
     sec("🔮", "Previsão para o Restante do Mês")
@@ -291,7 +291,7 @@ def render(ctx):
         media_diaria = desp_mes / dia_atual
         dias_restantes = dias_mes - dia_atual
         previsao = desp_mes + (media_diaria * dias_restantes)
-        st.markdown(f"""
+        st.html(f"""
             <div class="glass-card">
                 <div style="display: flex; justify-content: space-around; text-align: center;">
                     <div>
@@ -308,11 +308,11 @@ def render(ctx):
                     </div>
                 </div>
             </div>
-        """, unsafe_allow_html=True)
+        """)
     else:
         st.info("Sem dados suficientes para previsão.")
 
-    st.markdown("<br>", unsafe_allow_html=True)
+    st.html("<br>")
 
     # ── Média últimos 3 meses por categoria ───────────────────────────
     sec("📋", "Média de Gastos (3 meses) por Categoria")
@@ -328,14 +328,14 @@ def render(ctx):
         cols_mc = st.columns(4)
         for i, (_, row) in enumerate(media_cats.iterrows()):
             with cols_mc[i % 4]:
-                st.markdown(f"""
+                st.html(f"""
                     <div class="glass-card" style="text-align: center; padding: 0.8rem;">
                         <div style="font-size: 1.3rem;">{row['icone']}</div>
                         <div style="font-size: 0.75rem; color: var(--text2); margin: 0.2rem 0;">{row['nome']}</div>
                         <div style="font-size: 0.95rem; font-weight: 700; color: var(--text);">{fmt(row['media'])}/mês</div>
                     </div>
-                """, unsafe_allow_html=True)
-    st.markdown("<br>", unsafe_allow_html=True)
+                """)
+    st.html("<br>")
 
     # ── Evolução de Categorias (6 meses) ───────────────────────────
     sec("📈", "Evolução de Categorias (Últimos 6 meses)")
@@ -369,7 +369,7 @@ def render(ctx):
             st.plotly_chart(fig_cat, width='stretch')
     else:
         st.info("Sem dados suficientes para os últimos 6 meses.")
-    st.markdown("<br>", unsafe_allow_html=True)
+    st.html("<br>")
 
     # ── Heatmap: Gastos por Dia da Semana ──────────────────────────────
     sec("📅", "Gastos por Dia da Semana")
@@ -395,26 +395,26 @@ def render(ctx):
             cor_bg = f"rgba({r},{g},{b},{0.15 + intensidade * 0.4})"
             
             with cols_hm[d]:
-                st.markdown(f"""
+                st.html(f"""
                     <div style="background:{cor_bg}; border-radius:10px; padding:0.8rem 0.2rem; text-align:center; display:flex; flex-direction:column; justify-content:center; min-height:80px; border:1px solid rgba(255,255,255,0.05); transition:all 0.3s;">
                         <div style="font-size:0.75rem; font-weight:700; color:var(--text);">{dias_semana_map[d]}</div>
                         <div style="font-size:0.8rem; font-weight:800; color:#fff; margin-top:0.3rem;">{fmt(val)}</div>
                     </div>
-                """, unsafe_allow_html=True)
+                """)
                 
         dia_max = gastos_dia.idxmax()
         val_max = gastos_dia.max()
         if val_max > 0:
-            st.markdown(f"""
+            st.html(f"""
                 <div class="alert-card warning" style="margin-top:1rem;">
                     <span class="alert-icon">💡</span>
                     <span class="alert-text"><b>Insight Automático:</b> Você costuma gastar mais às <b>{dias_semana_map[dia_max]}s-feiras</b> (média de {fmt(val_max)}).</span>
                 </div>
-            """, unsafe_allow_html=True)
+            """)
     else:
         st.info("Sem dados suficientes para o mapa de calor de gastos neste mês.")
 
-    st.markdown("<br>", unsafe_allow_html=True)
+    st.html("<br>")
 
     # ── Heatmap Estilo GitHub (Atividade) ──────────────────────────────
     sec("🔥", "Frequência de Registros (Últimos 6 meses)")
@@ -493,13 +493,13 @@ def render(ctx):
     </div>
     """
     
-    st.markdown(f"""
+    st.html(f"""
         <div class="glass-card" style="padding: 1rem;">
             {gh_html}
         </div>
-    """, unsafe_allow_html=True)
+    """)
 
-    st.markdown("<br>", unsafe_allow_html=True)
+    st.html("<br>")
 
     # ── Projeção de Patrimônio - 12 Meses ──────────────────────────
     sec("🔮", "Projeção de Patrimônio (12 meses)")
@@ -587,7 +587,7 @@ def render(ctx):
         )
         st.plotly_chart(fig_proj, key="proj_chart")
         
-        st.markdown(f"""
+        st.html(f"""
             <div style="display:flex; justify-content:space-between; align-items:center; background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.05); padding:1rem; border-radius:12px; margin-top:0.5rem;">
                 <div>
                     <div style="font-size:0.7rem; color:var(--text2); text-transform:uppercase;">Economia Média Mensal (Últ. 3 meses)</div>
@@ -598,6 +598,6 @@ def render(ctx):
                     <div style="font-size:1.4rem; font-weight:900; color:#4e8cff;">{fmt(proj_real[-1])}</div>
                 </div>
             </div>
-        """, unsafe_allow_html=True)
+        """)
     else:
         st.info("Para gerar uma projeção, você precisa ter uma média de economia (sobra positiva) nos últimos 3 meses.")

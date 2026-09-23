@@ -105,13 +105,13 @@ with st.sidebar:
         balanco_mes = rec_mes - desp_mes - simples_mes
 
         cor_balanco = "#00d4aa" if balanco_mes >= 0 else "#ff4b6e"
-        st.markdown(f"""
+        st.html(f"""
             <div class="sidebar-stat"><span class="ss-label">💰 Saldo do Mês</span><span class="ss-value" style="color:{cor_balanco}">{fmt(balanco_mes)}</span></div>
             <div class="sidebar-stat"><span class="ss-label">🛡️ Reserva</span><span class="ss-value" style="color:#4e8cff">{fmt(saldo_reserva)}</span></div>
             <div class="sidebar-stat"><span class="ss-label">📈 Receitas</span><span class="ss-value" style="color:#00d4aa">{fmt(rec_mes)}</span></div>
             <div class="sidebar-stat"><span class="ss-label">📉 Despesas</span><span class="ss-value" style="color:#ff4b6e">{fmt(desp_mes)}</span></div>
             <div class="sidebar-stat"><span class="ss-label">📋 Simples (6%)</span><span class="ss-value" style="color:#f59e0b">{fmt(simples_mes)}</span></div>
-        """, unsafe_allow_html=True)
+        """)
         st.markdown("---")
 
         # Score rápido na sidebar
@@ -123,7 +123,7 @@ with st.sidebar:
         from components.cards import ring_progress
         ring_html = ring_progress(score, size=55, stroke=5, color=score_cor, label=str(score))
         
-        st.markdown(f"""
+        st.html(f"""
             <div class="sidebar-stat" style="flex-direction:column;align-items:center;padding:0.8rem;">
                 <span class="ss-label" style="margin-bottom:0.3rem;">💚 Saúde Financeira</span>
                 <div style="display:flex;align-items:center;gap:0.6rem;">
@@ -131,7 +131,7 @@ with st.sidebar:
                     <span class="ss-value" style="color:{score_cor};font-size:0.8rem;">{score_label}</span>
                 </div>
             </div>
-        """, unsafe_allow_html=True)
+        """)
         st.caption(f"📅 {MESES_PT[mes_sel]} / {ano_sel}")
 
         st.markdown("---")
@@ -211,7 +211,7 @@ if total_txs < 3:
     s3_icon = "✓" if step_3_done else "3"
     s4_icon = "✓" if step_4_done else "4"
     
-    st.markdown(f"""
+    st.html(f"""
         <div class="onboarding-card">
             <h2 style="margin:0 0 0.3rem 0;font-size:1.3rem;color:var(--text);">👋 Bem-vindo ao Financeiro!</h2>
             <p style="font-size:0.85rem;color:var(--text2);margin:0 0 1.2rem 0;">
@@ -252,7 +252,7 @@ if total_txs < 3:
             </div>
             <div style="text-align:center;margin-top:0.5rem;font-size:0.72rem;color:var(--text2);">{steps_done}/4 passos concluídos</div>
         </div>
-    """, unsafe_allow_html=True)
+    """)
 
 # ─── Abas (Lazy Loading) ───────────────────────────────────────────────────────
 opcoes_abas = {

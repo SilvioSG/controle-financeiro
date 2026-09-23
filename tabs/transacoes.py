@@ -175,7 +175,7 @@ def render(ctx):
             else:
                 st.error("Preencha todos os campos.")
 
-    st.markdown("<br>", unsafe_allow_html=True)
+    st.html("<br>")
 
     # ── Importar CSV ──────────────────────────────────────────────────
     with st.expander("📥 Importar Extrato (CSV)"):
@@ -365,7 +365,7 @@ def render(ctx):
         tot_desp = txs[txs['tipo'] == 'despesa']['valor'].sum()
         tot_saldo = tot_rec - tot_desp
         
-        st.markdown(f"""
+        st.html(f"""
         <div style="display:flex; justify-content:space-around; padding: 0.8rem; background: linear-gradient(135deg, rgba(22,27,38,0.7), rgba(11,14,20,0.8)); border-radius: 12px; margin-bottom: 1.5rem; border: 1px solid rgba(255,255,255,0.03);">
             <div style="text-align:center;">
                 <div style="font-size:0.65rem; color:#8b95a5; text-transform:uppercase;">Receitas</div>
@@ -380,7 +380,7 @@ def render(ctx):
                 <div style="font-weight:700; color:{'#00d4aa' if tot_saldo >= 0 else '#ff4b6e'};">{fmt(tot_saldo)}</div>
             </div>
         </div>
-        """, unsafe_allow_html=True)
+        """)
         
         # Agrupar por data (dia) para o Feed
         txs['data_formatada'] = pd.to_datetime(txs['data']).dt.strftime('%Y-%m-%d')

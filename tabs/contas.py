@@ -18,13 +18,13 @@ def render(ctx):
     cl = read_sql("SELECT * FROM contas", conn)
 
     if cl.empty:
-        st.markdown("""
+        st.html("""
             <div class="empty-state">
                 <div class="empty-icon">🏦</div>
                 <div class="empty-title">Nenhuma conta cadastrada</div>
                 <div class="empty-desc">Crie sua primeira conta para começar a controlar suas finanças. Adicione abaixo!</div>
             </div>
-        """, unsafe_allow_html=True)
+        """)
     else:
         for _, c in cl.iterrows():
             s = saldo_conta(conn, c["id"])
@@ -110,15 +110,15 @@ def render(ctx):
                 with ce1:
                     en = st.text_input("Novo nome da conta", value=c["nome"], key=f"en_{c['id']}")
                 with ce2:
-                    st.markdown("<br>", unsafe_allow_html=True)
+                    st.html("<br>")
                     if st.button("Salvar", key=f"es_{c['id']}", type="primary", width='stretch'):
                         if en.strip():
                             conn.execute("UPDATE contas SET nome=? WHERE id=?", (en.strip(), c["id"]))
                             conn.commit()
                             st.rerun()
 
-    st.markdown("<br>", unsafe_allow_html=True)
-    st.markdown("<br>", unsafe_allow_html=True)
+    st.html("<br>")
+    st.html("<br>")
 
     # ── Nova Conta ────────────────────────────────────────────────────
     sec("➕", "Nova Conta")
@@ -165,7 +165,7 @@ def render(ctx):
             st.error("Informe o nome.")
 
     # ── Transferência entre Contas (Fase 2.3) ─────────────────────────
-    st.markdown("<br>", unsafe_allow_html=True)
+    st.html("<br>")
     sec("🔄", "Transferência entre Contas")
     
     if cl.empty or len(cl) < 2:

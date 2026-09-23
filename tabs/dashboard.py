@@ -108,7 +108,7 @@ def render(ctx):
         sub_parts.append(f"🛡️ Reserva: {fmt(saldo_reserva)}")
     sub_parts.append(f"💰 Balanço do mês: {fmt(balanco_mes)}")
 
-    st.markdown(f"""
+    st.html(f"""
     <div class="hero-card">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:1rem;">
             <div style="flex:1;min-width:220px;">
@@ -128,9 +128,9 @@ def render(ctx):
             </div>
         </div>
     </div>
-    """, unsafe_allow_html=True)
+    """)
 
-    st.markdown("<br>", unsafe_allow_html=True)
+    st.html("<br>")
 
     # ══════════════════════════════════════════════════════════════════
     # ALERTAS INTELIGENTES (Premium)
@@ -153,8 +153,8 @@ def render(ctx):
 
     if alertas:
         alerts_html = "".join([alert_card(ic, msg, lvl) for ic, msg, lvl in alertas])
-        st.markdown(alerts_html, unsafe_allow_html=True)
-        st.markdown("<br>", unsafe_allow_html=True)
+        st.html(alerts_html)
+        st.html("<br>")
 
     # ══════════════════════════════════════════════════════════════════
     # QUANTO POSSO GASTAR HOJE (Premium)
@@ -178,7 +178,7 @@ def render(ctx):
         ring_html = ring_progress(min(pct_gasto, 100), size=65, stroke=5, 
                                    color=cor_hoje, label=f"{pct_gasto:.0f}%")
         
-        st.markdown(f"""
+        st.html(f"""
             <div class="glass-card" style="margin-bottom:1.2rem; border-left: 4px solid {cor_hoje};">
                 <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:1rem;">
                     <div style="flex:1;min-width:200px;">
@@ -205,7 +205,7 @@ def render(ctx):
                     </div>
                 </div>
             </div>
-        """, unsafe_allow_html=True)
+        """)
 
     # ══════════════════════════════════════════════════════════════════
     # CARDS KPI COM TRENDS
@@ -234,7 +234,7 @@ def render(ctx):
         <div>{metric_card("💰","blue","Saldo do Mês",fmt(saldo_total),"mv-blue","Livre este mês","mb-blue")}</div>
     </div>
     """
-    st.markdown(html_cards, unsafe_allow_html=True)
+    st.html(html_cards)
 
     # ══════════════════════════════════════════════════════════════════
     # EVOLUÇÃO DIÁRIA + DESPESAS POR CATEGORIA (lado a lado)
@@ -412,7 +412,7 @@ def render(ctx):
         </div>
         """
         
-        st.markdown(cal_html, unsafe_allow_html=True)
+        st.html(cal_html)
     
     with col_feed:
         sec("⚡", "Atividade Recente")
@@ -439,17 +439,17 @@ def render(ctx):
                     fmt(row["valor"]), is_inc,
                 )
             feed_html += '</div>'
-            st.markdown(feed_html, unsafe_allow_html=True)
+            st.html(feed_html)
         else:
-            st.markdown("""
+            st.html("""
                 <div class="empty-state" style="padding:1.5rem;">
                     <div class="empty-icon">📝</div>
                     <div class="empty-title">Sem atividade</div>
                     <div class="empty-desc">Registre suas primeiras transações na aba Transações</div>
                 </div>
-            """, unsafe_allow_html=True)
+            """)
 
-    st.markdown("<br>", unsafe_allow_html=True)
+    st.html("<br>")
 
     # ══════════════════════════════════════════════════════════════════
     # PROJEÇÃO DE FLUXO DE CAIXA
@@ -518,7 +518,7 @@ def render(ctx):
             xaxis=dict(showgrid=False, tickformat="%d/%m")
         )
         st.plotly_chart(fig_proj, width='stretch')
-        st.markdown("<br>", unsafe_allow_html=True)
+        st.html("<br>")
     
 
     # ══════════════════════════════════════════════════════════════════
@@ -565,19 +565,19 @@ def render(ctx):
                 pct = min(data["pct"], 100)
                 ideal_pos = data["ideal"]
                 status = "✅" if data["pct"] <= data["ideal"] + 5 else "⚠️"
-                st.markdown(f'<div class="rule-bar-wrap"><div class="rule-bar-label"><span class="rule-bar-name">{nome} {status}</span><span class="rule-bar-vals">{int(data["pct"])}% real &middot; {data["ideal"]}% ideal &middot; {fmt(data["valor"])}</span></div><div class="rule-bar-bg"><div class="rule-bar-fill" style="width:{pct}%; background: {cor};"></div><div class="rule-bar-ideal" style="left:{ideal_pos}%;"></div></div></div>', unsafe_allow_html=True)
+                st.html(f'<div class="rule-bar-wrap"><div class="rule-bar-label"><span class="rule-bar-name">{nome} {status}</span><span class="rule-bar-vals">{int(data["pct"])}% real &middot; {data["ideal"]}% ideal &middot; {fmt(data["valor"])}</span></div><div class="rule-bar-bg"><div class="rule-bar-fill" style="width:{pct}%; background: {cor};"></div><div class="rule-bar-ideal" style="left:{ideal_pos}%;"></div></div></div>')
 
             if rec_mes > 0:
                 pct_livre = max(0, 100 - regra["necessidades"]["pct"] - regra["desejos"]["pct"])
                 valor_livre = max(0, (rec_mes * pct_livre / 100) - simples_mes)
-                st.markdown(f"""
+                st.html(f"""
                     <div style="background: rgba(0,212,170,0.06); border: 1px solid rgba(0,212,170,0.15); border-radius: 10px; padding: 0.7rem 1rem; margin-top: 0.5rem;">
                         <span style="font-size: 0.78rem; color: #8b95a5;">Disponível para investir/guardar:</span>
                         <span style="font-size: 0.92rem; font-weight: 700; color: #00d4aa; float: right;">{fmt(valor_livre)}</span>
                     </div>
-                """, unsafe_allow_html=True)
+                """)
 
-        st.markdown("<br>", unsafe_allow_html=True)
+        st.html("<br>")
 
     # ══════════════════════════════════════════════════════════════════
     # CONQUISTAS E ATALHOS
@@ -609,8 +609,8 @@ def render(ctx):
                         break
                         
         if streak > 0:
-            st.markdown(streak_bar(streak, "dias seguidos registrando!"), unsafe_allow_html=True)
-            st.markdown("<br>", unsafe_allow_html=True)
+            st.html(streak_bar(streak, "dias seguidos registrando!"))
+            st.html("<br>")
 
         badges_ganhas = []
     
@@ -645,8 +645,8 @@ def render(ctx):
             for emoji, titulo, desc, cor in badges_ganhas:
                 badges_html += badge_card(emoji, titulo, desc, cor)
             badges_html += '</div>'
-            st.markdown(badges_html, unsafe_allow_html=True)
-            st.markdown("<br>", unsafe_allow_html=True)
+            st.html(badges_html)
+            st.html("<br>")
 
         # ── Atalhos de Lançamento ──────────────────────────────────────
         sec("⚡", "Lançamento Rápido")
@@ -706,13 +706,13 @@ def render(ctx):
                                 conn.commit()
                                 st.rerun()
         else:
-            st.markdown("""
+            st.html("""
                 <div class="empty-state" style="padding:1.5rem;">
                     <div class="empty-icon">⚡</div>
                     <div class="empty-title">Sem atalhos ainda</div>
                     <div class="empty-desc">Crie atalhos para lançar despesas frequentes com um clique.</div>
                 </div>
-            """, unsafe_allow_html=True)
+            """)
             with st.expander("➕ Criar Primeiro Atalho"):
                 with st.form("form_primeiro_atalho"):
                     nat_desc = st.text_input("Descrição", placeholder="Ex: Uber")
@@ -756,7 +756,7 @@ def render(ctx):
                     status_venc = "Hoje!" if dias_falta == 0 else f"Faltam {dias_falta} dias"
                     cor_venc = "#ff4b6e" if dias_falta <= 3 else "#f59e0b" if dias_falta <= 7 else "#00d4aa"
                 
-                    st.markdown(f"""
+                    st.html(f"""
                     <div class="alert-card" style="border-color:{cor_venc};">
                         <div style="display:flex;align-items:center;gap:0.8rem;flex:1;">
                             <div style="font-size:1.5rem;">{r[4] or '📌'}</div>
@@ -767,13 +767,13 @@ def render(ctx):
                         </div>
                         <div style="font-weight:700; color:#ff4b6e;">- {fmt(r[2])}</div>
                     </div>
-                    """, unsafe_allow_html=True)
+                    """)
             else:
                 st.info("Nenhuma conta fixa para vencer nos próximos dias deste mês! 🎉")
         else:
             st.info("Nenhuma conta recorrente cadastrada.")
     
-        st.markdown("<br>", unsafe_allow_html=True)
+        st.html("<br>")
     
 
     with st.expander("🏆 Top 5 Gastos e Visão Anual", expanded=False):
@@ -792,7 +792,7 @@ def render(ctx):
                 rank_icons = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣"]
                 for i, (_, row) in enumerate(top5.iterrows()):
                     pct_rec = (row["valor"] / rec_mes * 100) if rec_mes > 0 else 0
-                    st.markdown(f"""
+                    st.html(f"""
                         <div class="top-exp">
                             <div class="top-exp-left">
                                 <div class="top-exp-rank">{rank_icons[i]}</div>
@@ -806,7 +806,7 @@ def render(ctx):
                                 <div style="font-size:0.6rem;color:#5a6478;text-align:right;">{pct_rec:.1f}% da receita</div>
                             </div>
                         </div>
-                    """, unsafe_allow_html=True)
+                    """)
             else:
                 st.info("Sem gastos neste mês.")
 
@@ -864,7 +864,7 @@ def render(ctx):
             melhor_str = f"{melhor_mes} ({fmt(melhor_saldo)})" if melhor_mes else "-"
             pior_str = f"{pior_mes} ({fmt(pior_saldo)})" if pior_mes else "-"
         
-            st.markdown(f"""
+            st.html(f"""
                 <div style="display:flex;gap:0.8rem;flex-wrap:wrap; margin-bottom: 1rem;">
                     <div class="glass-card" style="flex:1;text-align:center;padding:0.7rem;">
                         <div style="font-size:0.62rem;color:#8b95a5;text-transform:uppercase;">Receita Anual</div>
@@ -889,4 +889,4 @@ def render(ctx):
                         <div style="font-size:0.85rem;font-weight:800;color:#ff4b6e;">{pior_str}</div>
                     </div>
                 </div>
-            """, unsafe_allow_html=True)
+            """)

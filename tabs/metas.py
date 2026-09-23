@@ -71,7 +71,7 @@ def render(ctx):
             with cm2:
                 ring_html = ring_progress(pct, size=65, stroke=6, color=ring_color, label=f"{pct:.0f}%")
                 
-                st.markdown(f"""
+                st.html(f"""
                     <div class="goal-card" style="border-left:4px solid {ring_color};">
                         <div style="display:flex;align-items:center;gap:1rem;">
                             <div style="flex-shrink:0;">
@@ -93,7 +93,7 @@ def render(ctx):
                             </div>
                         </div>
                     </div>
-                """, unsafe_allow_html=True)
+                """)
             with ca2:
                 av = st.number_input("Valor (R$)", min_value=0.0, step=50.0, format="%.2f", key=f"av_{m['id']}")
                 a1, a2 = st.columns(2)
@@ -124,17 +124,17 @@ def render(ctx):
             for m in metas_completas:
                 badges_html += badge_card("🏆", m["nome"], f"Meta de {fmt(m['valor_meta'])} atingida!", "#f59e0b")
             badges_html += '</div>'
-            st.markdown(badges_html, unsafe_allow_html=True)
-            st.markdown("<br>", unsafe_allow_html=True)
+            st.html(badges_html)
+            st.html("<br>")
 
     else:
-        st.markdown("""
+        st.html("""
             <div class="empty-state">
                 <div class="empty-icon">🎯</div>
                 <div class="empty-title">Sem metas ainda</div>
                 <div class="empty-desc">Defina metas financeiras para se motivar a poupar! Ex: Reserva de Emergência, Viagem, Carro novo.</div>
             </div>
-        """, unsafe_allow_html=True)
+        """)
 
     # ── Nova Meta ─────────────────────────────────────────────────────
     sec("➕", "Nova Meta")
@@ -154,7 +154,7 @@ def render(ctx):
                 st.rerun()
 
     # ── Calculadora de Reserva de Emergência ──────────────────────────
-    st.markdown("<br>", unsafe_allow_html=True)
+    st.html("<br>")
     sec("🧮", "Calculadora de Reserva de Emergência", tooltip="reserva")
     rc1, rc2 = st.columns(2)
     with rc1:
@@ -173,28 +173,28 @@ def render(ctx):
         col_r6, col_r12 = st.columns(2)
         with col_r6:
             ring6 = ring_progress(pct6, size=80, stroke=7, color="#00d4aa", label=f"{pct6:.0f}%")
-            st.markdown(f"""
+            st.html(f"""
                 <div class="glass-card" style="text-align:center;">
                     <div style="font-size:0.75rem;color:var(--text2);text-transform:uppercase;margin-bottom:0.5rem;">Meta 6 meses</div>
                     {ring6}
                     <div style="font-size:1.2rem;font-weight:800;color:#00d4aa;margin-top:0.5rem;">{fmt(r6)}</div>
                     <div style="font-size:0.72rem;color:var(--text2);margin-top:0.3rem;">Faltam {fmt(falta6)}</div>
                 </div>
-            """, unsafe_allow_html=True)
+            """)
         
         with col_r12:
             ring12 = ring_progress(pct12, size=80, stroke=7, color="#4e8cff", label=f"{pct12:.0f}%")
-            st.markdown(f"""
+            st.html(f"""
                 <div class="glass-card" style="text-align:center;">
                     <div style="font-size:0.75rem;color:var(--text2);text-transform:uppercase;margin-bottom:0.5rem;">Meta 12 meses</div>
                     {ring12}
                     <div style="font-size:1.2rem;font-weight:800;color:#4e8cff;margin-top:0.5rem;">{fmt(r12)}</div>
                     <div style="font-size:0.72rem;color:var(--text2);margin-top:0.3rem;">Faltam {fmt(falta12)}</div>
                 </div>
-            """, unsafe_allow_html=True)
+            """)
 
         if falta6 > 0:
-            st.markdown("<br>", unsafe_allow_html=True)
+            st.html("<br>")
             planos_html = '<div style="display:flex;gap:0.5rem;flex-wrap:wrap;justify-content:center;">'
             for meses_alvo in [6, 12, 24]:
                 aporte_mensal = falta6 / meses_alvo
@@ -205,9 +205,9 @@ def render(ctx):
                 </div>
                 """
             planos_html += '</div>'
-            st.markdown(planos_html, unsafe_allow_html=True)
+            st.markdown(planos_html)
 
-        st.markdown(f"""
+        st.html(f"""
             <div class="insight-card" style="margin-top:0.8rem;">
                 <span class="insight-icon">💡</span>
                 <div>
@@ -216,4 +216,4 @@ def render(ctx):
                     <div class="insight-label">Onde investir a reserva</div>
                 </div>
             </div>
-        """, unsafe_allow_html=True)
+        """)

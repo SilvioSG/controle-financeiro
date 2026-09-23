@@ -39,7 +39,7 @@ GLOSSARIO_CATEGORIAS = {
 
 def render_glossario():
     """Renderiza o glossário financeiro na sidebar ou em expander."""
-    st.markdown("""
+    st.html("""
         <div style="margin-bottom: 0.5rem;">
             <span style="font-size: 0.72rem; color: var(--text2); text-transform: uppercase; letter-spacing: 0.8px; font-weight: 600;">
                 📖 Glossário Financeiro
@@ -48,7 +48,7 @@ def render_glossario():
                 Entenda os termos usados no app
             </div>
         </div>
-    """, unsafe_allow_html=True)
+    """)
     
     busca = st.text_input("🔍 Buscar termo...", key="busca_glossario", label_visibility="collapsed", placeholder="Buscar termo...")
     
@@ -68,9 +68,9 @@ def render_glossario():
         for nome, chave in termos_filtrados:
             explicacao = EXPLICACOES.get(chave, "")
             if explicacao:
-                st.markdown(f"""
+                st.html(f"""
                     <div class="glossary-term">
                         <div class="glossary-word">{nome}</div>
                         <div class="glossary-def">{explicacao}</div>
                     </div>
-                """, unsafe_allow_html=True)
+                """)
