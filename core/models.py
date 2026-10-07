@@ -110,8 +110,23 @@ def get_orcamentos_mes(conn, mes, ano):
 # ─── Metas ────────────────────────────────────────────────────────────────────
 
 def get_metas(conn):
-    """Retorna DataFrame de todas as metas."""
-    return read_sql("SELECT * FROM metas ORDER BY id", conn)
+    """Retorna DataFrame de todas as metas.
+
+    Metas vinculadas a uma conta (conta_id) usam o saldo atual da conta como
+    valor_atual, calculado na leitura (nada é gravado no banco).
+    """
+    sql = """
+        SELECT m.id, m.nome, m.valor_meta, m.conta_id,
+               CASE WHEN m.conta_id IS NULL THEN m.valor_atual ELSE
+                   COALESCE(c.saldo_inicial, 0)
+                   + COALESCE((SELECT SUM(valor) FROM transacoes WHERE conta_id = c.id AND tipo='receita'), 0)
+                   - COALESCE((SELECT SUM(valor) FROM transacoes WHERE conta_id = c.id AND tipo='despesa'), 0)
+               END AS valor_atual
+        FROM metas m
+        LEFT JOIN contas c ON c.id = m.conta_id
+        ORDER BY m.id
+    """
+    return read_sql(sql, conn)
 
 
 # ─── Consultas Agregadas de Alta Performance ─────────────────────────────────

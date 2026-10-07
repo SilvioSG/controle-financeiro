@@ -95,10 +95,30 @@ def render(ctx):
                     </div>
                 """)
             with ca2:
-                av = st.number_input("Valor (R$)", min_value=0.0, step=50.0, format="%.2f", key=f"av_{m['id']}")
-                a1, a2 = st.columns(2)
+                vinculada = pd.notna(m.get("conta_id"))
+                if vinculada:
+                    st.caption("🔗 Atualizada pelo saldo da conta")
+                    with st.popover("💸 Usar Reserva", help="Retirar valor e criar despesa na conta vinculada"):
+                        sacar_valor = st.number_input("Valor a retirar (R$)", min_value=0.01, step=50.0, format="%.2f", key=f"sv_{m['id']}")
+                        sacar_desc = st.text_input("Descrição", value="Uso da Reserva", key=f"sd_{m['id']}")
+                        if st.button("Confirmar", key=f"bsac_{m['id']}", type="primary", use_container_width=True):
+                            cat_res = conn.execute("SELECT id FROM categorias WHERE nome LIKE '%Reserva%' OR nome LIKE '%Emergência%' OR nome LIKE '%Investimento%' LIMIT 1").fetchone()
+                            cat_id = cat_res[0] if cat_res else conn.execute("SELECT id FROM categorias LIMIT 1").fetchone()[0]
+                            data_tx = pd.Timestamp.now().strftime("%Y-%m-%d")
+                            conn.execute("""
+                                INSERT INTO transacoes (tipo, descricao, valor, data, categoria_id, conta_id, recorrente, observacao)
+                                VALUES ('despesa', ?, ?, ?, ?, ?, 0, 'Gerado por: Usar Reserva')
+                            """, (sacar_desc, sacar_valor, data_tx, cat_id, int(m["conta_id"])))
+                            conn.commit()
+                            from core.models import clear_cache_transacoes
+                            clear_cache_transacoes()
+                            st.rerun()
+                    av = 0
+                else:
+                    av = st.number_input("Valor (R$)", min_value=0.0, step=50.0, format="%.2f", key=f"av_{m['id']}")
+                a1, a2, a3 = st.columns(3)
                 with a1:
-                    if st.button("➕", key=f"ba_{m['id']}"):
+                    if not vinculada and st.button("➕", key=f"ba_{m['id']}"):
                         if av > 0:
                             conn.execute("UPDATE metas SET valor_atual=valor_atual+? WHERE id=?", (av, m["id"]))
                             conn.commit()
@@ -109,6 +129,12 @@ def render(ctx):
                                 
                             st.rerun()
                 with a2:
+                    if not vinculada and st.button("➖", key=f"bs_{m['id']}"):
+                        if av > 0:
+                            conn.execute("UPDATE metas SET valor_atual=MAX(0, valor_atual-?) WHERE id=?", (av, m["id"]))
+                            conn.commit()
+                            st.rerun()
+                with a3:
                     with st.popover("🗑️"):
                         st.write("Deseja excluir esta meta?")
                         if st.button("Confirmar", key=f"dm_{m['id']}", type="primary"):

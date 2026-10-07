@@ -106,14 +106,15 @@ def render(ctx):
                         st.rerun()
 
             with st.expander(f"✏️ Editar: {c['nome']}"):
-                ce1, ce2 = st.columns([3, 1])
+                ce1, ce2 = st.columns([2, 1])
                 with ce1:
                     en = st.text_input("Novo nome da conta", value=c["nome"], key=f"en_{c['id']}")
+                    novo_saldo_ini = st.number_input("Ajustar Saldo Inicial (R$)", value=float(c["saldo_inicial"]), step=100.0, format="%.2f", key=f"si_{c['id']}")
                 with ce2:
                     st.html("<br>")
                     if st.button("Salvar", key=f"es_{c['id']}", type="primary", width='stretch'):
                         if en.strip():
-                            conn.execute("UPDATE contas SET nome=? WHERE id=?", (en.strip(), c["id"]))
+                            conn.execute("UPDATE contas SET nome=?, saldo_inicial=? WHERE id=?", (en.strip(), novo_saldo_ini, c["id"]))
                             conn.commit()
                             st.rerun()
 

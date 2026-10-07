@@ -1,14 +1,26 @@
 """
-core/auth.py — Sistema de autenticação simples para o app Financeiro.
+core/auth.py — Autenticação do app Financeiro (uso individual).
+
+Login via Supabase Auth, restrito ao e-mail em st.secrets["auth"]["allowed_email"].
 """
 import streamlit as st
-import hashlib
-import hmac
 
 
-def _hash_password(password: str) -> str:
-    """Gera hash SHA-256 de uma senha."""
-    return hashlib.sha256(password.encode()).hexdigest()
+@st.cache_resource
+def _get_supabase(url: str, key: str):
+    from supabase import create_client
+    return create_client(url, key)
+
+
+def _allowed_email() -> str:
+    return str(st.secrets.get("auth", {}).get("allowed_email", "")).strip().lower()
+
+
+def logout():
+    """Encerra a sessão do usuário."""
+    for k in ("authenticated", "user_id", "user_email"):
+        st.session_state.pop(k, None)
+    st.rerun()
 
 
 def check_password() -> bool:
@@ -18,23 +30,12 @@ def check_password() -> bool:
     if st.session_state.get("authenticated"):
         return True
 
-    # Se não há secrets de supabase configurados, bloqueia
-    if "supabase" not in st.secrets:
-        st.error("Configuração do Supabase ausente em secrets.toml")
+    # Sem configuração completa, bloqueia (nunca libera acesso por padrão)
+    if "supabase" not in st.secrets or not _allowed_email():
+        st.error("Configuração ausente em secrets.toml ([supabase] e [auth] allowed_email).")
         return False
-        
-    from supabase import create_client, Client
-    url = st.secrets["supabase"]["api_url"]
-    key = st.secrets["supabase"]["api_key"]
-    
-    @st.cache_resource
-    def get_supabase() -> Client:
-        return create_client(url, key)
-        
-    supabase = get_supabase()
-    # Se não há secrets configurados, permite acesso (dev local)
-    if "passwords" not in st.secrets:
-        return True
+
+    supabase = _get_supabase(st.secrets["supabase"]["api_url"], st.secrets["supabase"]["api_key"])
 
     # ─── Tela de Login ────────────────────────────────────────────────────
     st.html("""
@@ -82,44 +83,26 @@ def check_password() -> bool:
         st.html('<div class="login-title">📊 Financeiro</div>')
         st.html('<div class="login-subtitle">Controle Pessoal na Nuvem</div>')
 
-        tab1, tab2 = st.tabs(["🔑 Login", "📝 Criar Conta"])
-        
-        with tab1:
-            with st.form("login_form"):
-                email_login = st.text_input("📧 Email", placeholder="Digite seu email", autocomplete="username")
-                pass_login = st.text_input("🔒 Senha", type="password", placeholder="Digite sua senha", autocomplete="current-password")
-                submitted_login = st.form_submit_button("Entrar", width='stretch', type="primary")
+        with st.form("login_form"):
+            email_login = st.text_input("📧 Email", placeholder="Digite seu email", autocomplete="username")
+            pass_login = st.text_input("🔒 Senha", type="password", placeholder="Digite sua senha", autocomplete="current-password")
+            submitted_login = st.form_submit_button("Entrar", width='stretch', type="primary")
 
-            if submitted_login:
-                if not email_login or not pass_login:
-                    st.error("Preencha email e senha.")
-                else:
-                    try:
-                        res = supabase.auth.sign_in_with_password({"email": email_login, "password": pass_login})
-                        st.session_state["authenticated"] = True
-                        st.session_state["user_id"] = res.user.id
-                        st.rerun()
-                    except Exception as e:
-                        st.error("❌ Email ou senha incorretos.")
-
-        with tab2:
-            with st.form("signup_form"):
-                email_signup = st.text_input("📧 Email", placeholder="Seu melhor email")
-                pass_signup = st.text_input("🔒 Criar Senha", type="password", placeholder="Mínimo 6 caracteres")
-                pass_confirm = st.text_input("🔒 Confirmar Senha", type="password")
-                submitted_signup = st.form_submit_button("Criar Conta", width='stretch')
-                
-            if submitted_signup:
-                if not email_signup or not pass_signup:
-                    st.error("Preencha todos os campos.")
-                elif pass_signup != pass_confirm:
-                    st.error("As senhas não coincidem.")
-                else:
-                    try:
-                        res = supabase.auth.sign_up({"email": email_signup, "password": pass_signup})
-                        st.success("✅ Conta criada com sucesso! Você já pode fazer login.")
-                        st.info("⚠️ Se você não conseguir logar, peça ao administrador para desativar a confirmação de email no Supabase.")
-                    except Exception as e:
-                        st.error(f"❌ Erro ao criar conta: {str(e)}")
+        if submitted_login:
+            email_norm = (email_login or "").strip().lower()
+            if not email_norm or not pass_login:
+                st.error("Preencha email e senha.")
+            elif email_norm != _allowed_email():
+                # Mesma mensagem do erro de senha, para não revelar qual e-mail é válido
+                st.error("❌ Email ou senha incorretos.")
+            else:
+                try:
+                    res = supabase.auth.sign_in_with_password({"email": email_norm, "password": pass_login})
+                    st.session_state["authenticated"] = True
+                    st.session_state["user_id"] = res.user.id
+                    st.session_state["user_email"] = email_norm
+                    st.rerun()
+                except Exception:
+                    st.error("❌ Email ou senha incorretos.")
 
     return False

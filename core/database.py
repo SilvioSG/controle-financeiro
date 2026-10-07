@@ -23,16 +23,10 @@ class DBConnection:
         self.is_postgres = is_postgres
         self.lock = threading.Lock()
 
-    def _set_rls(self, cur):
-        user_id = st.session_state.get("user_id")
-        if user_id and self.is_postgres:
-            cur.execute("SELECT set_config('request.jwt.claim.sub', %s, false)", (str(user_id),))
-
     def execute(self, sql, params=None):
         with self.lock:
             cur = self._conn.cursor()
             try:
-                self._set_rls(cur)
                 if self.is_postgres:
                     sql = re.sub(r'\?', '%s', sql)
                 if params:
@@ -52,7 +46,6 @@ class DBConnection:
         with self.lock:
             cur = self._conn.cursor()
             try:
-                self._set_rls(cur)
                 if self.is_postgres:
                     sql = re.sub(r'\?', '%s', sql)
                     params_list = [tuple(p) if isinstance(p, list) else p for p in params_list]
@@ -102,26 +95,23 @@ def read_sql(sql, conn, params=None):
 
 @st.cache_resource
 def get_connection():
-    """Retorna conexão singleton — PostgreSQL (Supabase) ou SQLite (local)."""
+    """Retorna a conexão singleton com o PostgreSQL (Supabase).
 
-    # Tenta conectar ao Supabase se as credenciais estiverem configuradas
-    if "supabase" in st.secrets and "url" in st.secrets["supabase"]:
-        try:
-            import psycopg2
-            conn = psycopg2.connect(st.secrets["supabase"]["url"])
-            conn.autocommit = False
-            return DBConnection(conn, is_postgres=True)
-        except Exception as e:
-            print(f"⚠️ Falha ao conectar ao Supabase: {e}. Usando SQLite local.")
-
-    # Fallback: SQLite local
-    conn = sqlite3.connect("financas.db", check_same_thread=False)
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA synchronous=NORMAL")
-    conn.execute("PRAGMA cache_size=-64000")
-    conn.execute("PRAGMA temp_store=MEMORY")
-    conn.execute("PRAGMA foreign_keys=ON")
-    return DBConnection(conn, is_postgres=False)
+    Não há fallback para SQLite: se o banco estiver indisponível, o app para
+    (antes ele abria sem login usando um banco local vazio).
+    """
+    if "supabase" not in st.secrets or "url" not in st.secrets["supabase"]:
+        st.error("❌ Configuração do banco ausente em secrets.toml ([supabase] url).")
+        st.stop()
+    try:
+        import psycopg2
+        conn = psycopg2.connect(st.secrets["supabase"]["url"])
+        conn.autocommit = False
+        return DBConnection(conn, is_postgres=True)
+    except Exception as e:
+        print(f"⚠️ Falha ao conectar ao Supabase: {e}")
+        st.error("❌ Banco de dados indisponível no momento. Tente novamente em instantes.")
+        st.stop()
 
 
 # ─── Inicialização do Banco ──────────────────────────────────────────────────
@@ -282,6 +272,7 @@ def _init_db_postgres(conn):
         dia_fechamento INTEGER DEFAULT 1,
         dia_vencimento INTEGER DEFAULT 10
     )""")
+    conn.execute("ALTER TABLE contas ADD COLUMN IF NOT EXISTS ativa INTEGER DEFAULT 1")
 
     conn.execute("""CREATE TABLE IF NOT EXISTS categorias (
         id SERIAL PRIMARY KEY,
@@ -321,6 +312,7 @@ def _init_db_postgres(conn):
         valor_meta DOUBLE PRECISION NOT NULL,
         valor_atual DOUBLE PRECISION DEFAULT 0
     )""")
+    conn.execute("ALTER TABLE metas ADD COLUMN IF NOT EXISTS conta_id INTEGER REFERENCES contas(id)")
 
     conn.execute("""CREATE TABLE IF NOT EXISTS orcamentos (
         id SERIAL PRIMARY KEY,
