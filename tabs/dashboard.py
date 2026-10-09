@@ -50,7 +50,10 @@ def render(ctx):
         ), 0) FROM contas c
     """).fetchone()[0]
     
-    # Patrimônio do mês anterior para calcular variação
+    # Patrimônio do mês anterior estimado (Patrimônio atual - balanço do mês atual)
+    patrimonio_ant = patrimonio - balanco_mes
+    var_pct = (balanco_mes / abs(patrimonio_ant) * 100) if patrimonio_ant != 0 else 0
+    
     p_ant, m_ant, a_ant = get_pref(mes_sel - 1, ano_sel)
     rec_ant = conn.execute(
         "SELECT COALESCE(SUM(valor),0) FROM transacoes WHERE tipo='receita' AND COALESCE(is_transferencia,0)=0 AND data LIKE ?",
@@ -60,9 +63,6 @@ def render(ctx):
         "SELECT COALESCE(SUM(valor),0) FROM transacoes WHERE tipo='despesa' AND COALESCE(is_transferencia,0)=0 AND data LIKE ?",
         (f"{p_ant}%",),
     ).fetchone()[0]
-    
-    balanco_ant = rec_ant - desp_ant - (rec_ant * 0.06)
-    var_pct = ((balanco_mes - balanco_ant) / abs(balanco_ant) * 100) if balanco_ant != 0 else 0
 
     # Montar sparkline dos últimos 6 meses
     spark_data = []
