@@ -8,12 +8,12 @@ DESEJOS = {"Lazer", "Roupas", "Assinaturas", "Compras", "Outros (Despesa)"}
 
 
 def calcular_50_30_20(conn, prefixo, rec):
-    """Calcula distribuição real vs ideal pela regra 50-30-20."""
+    """Calcula distribuição real vs ideal pela regra 50-30-20 (sem transferências)."""
     gastos_cat = conn.execute("""
         SELECT c.nome, SUM(t.valor) as total FROM transacoes t
         JOIN categorias c ON t.categoria_id = c.id
-        WHERE t.tipo='despesa' AND t.data LIKE ?
-        GROUP BY c.id
+        WHERE t.tipo='despesa' AND COALESCE(t.is_transferencia,0)=0 AND t.data LIKE ?
+        GROUP BY c.id, c.nome
     """, (f"{prefixo}%",)).fetchall()
 
     nec, des, pri = 0, 0, 0

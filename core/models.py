@@ -9,17 +9,17 @@ from core.database import read_sql
 # ─── Transações ───────────────────────────────────────────────────────────────
 
 def get_receita_mes(conn, prefixo):
-    """Retorna total de receitas do mês (prefixo = 'YYYY-MM')."""
+    """Retorna total de receitas do mês (prefixo = 'YYYY-MM'), sem transferências."""
     return conn.execute(
-        "SELECT COALESCE(SUM(valor),0) FROM transacoes WHERE tipo='receita' AND data LIKE ?",
+        "SELECT COALESCE(SUM(valor),0) FROM transacoes WHERE tipo='receita' AND COALESCE(is_transferencia,0)=0 AND data LIKE ?",
         (f"{prefixo}%",),
     ).fetchone()[0]
 
 
 def get_despesa_mes(conn, prefixo):
-    """Retorna total de despesas do mês."""
+    """Retorna total de despesas do mês, sem transferências."""
     return conn.execute(
-        "SELECT COALESCE(SUM(valor),0) FROM transacoes WHERE tipo='despesa' AND data LIKE ?",
+        "SELECT COALESCE(SUM(valor),0) FROM transacoes WHERE tipo='despesa' AND COALESCE(is_transferencia,0)=0 AND data LIKE ?",
         (f"{prefixo}%",),
     ).fetchone()[0]
 
@@ -36,6 +36,7 @@ def get_transacoes_mes(conn, prefixo, busca=""):
 
     sql = f"""
         SELECT t.id, t.tipo, t.descricao, t.valor, t.data, t.recorrente, t.observacao,
+               t.categoria_id, t.conta_id, COALESCE(t.is_transferencia, 0) as is_transferencia,
                c.nome as cat, c.icone as ci, co.nome as conta,
                (SELECT {agg_fn} FROM tags tg JOIN transacao_tags tt ON tg.id = tt.tag_id WHERE tt.transacao_id = t.id) as tags_str
         FROM transacoes t
@@ -143,6 +144,7 @@ def get_agrupamento_diario_mes(_conn, prefixo):
         (f"{prefixo}%",)
     ).fetchall()
 
+
 @st.cache_data(ttl=60, show_spinner=False)
 def get_agrupamento_mensal_ano(_conn, ano):
     """Retorna o saldo mensal agregado do ano em 1 única consulta."""
@@ -155,17 +157,18 @@ def get_agrupamento_mensal_ano(_conn, ano):
         (f"{ano}-%",)
     ).fetchall()
 
+
 def get_gastos_categorias_mes(conn, prefixo):
-    """Retorna gastos agrupados por categoria no mês em 1 única consulta."""
+    """Retorna gastos agrupados por categoria no mês em 1 única consulta (sem transferências)."""
     rows = conn.execute(
         "SELECT categoria_id, SUM(valor) FROM transacoes "
-        "WHERE tipo='despesa' AND data LIKE ? GROUP BY categoria_id",
+        "WHERE tipo='despesa' AND COALESCE(is_transferencia,0)=0 AND data LIKE ? GROUP BY categoria_id",
         (f"{prefixo}%",)
     ).fetchall()
     return {row[0]: row[1] for row in rows}
+
 
 def clear_cache_transacoes():
     """Limpa o cache das funções cacheadas relacionadas a transações."""
     get_agrupamento_diario_mes.clear()
     get_agrupamento_mensal_ano.clear()
-

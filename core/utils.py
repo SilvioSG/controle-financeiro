@@ -2,6 +2,9 @@
 core/utils.py — Formatação, constantes e helpers compartilhados.
 """
 from datetime import datetime, date, timedelta
+import json
+import urllib.request
+import streamlit as st
 
 # ─── Constantes ───────────────────────────────────────────────────────────────
 
@@ -20,6 +23,64 @@ PLOTLY_LAYOUT = dict(
     margin=dict(l=25, r=25, t=40, b=25),
     legend=dict(bgcolor="rgba(0,0,0,0)", font=dict(color="#8b95a5", size=11)),
 )
+
+
+def get_taxa_simples() -> float:
+    """Retorna a alíquota configurada pelo usuário (padrão 6% = 0.06)."""
+    if "taxa_simples_pct" in st.session_state:
+        return float(st.session_state["taxa_simples_pct"]) / 100.0
+    try:
+        if "tax" in st.secrets and "simples_pct" in st.secrets["tax"]:
+            return float(st.secrets["tax"]["simples_pct"]) / 100.0
+    except Exception:
+        pass
+    return TAXA_SIMPLES
+
+
+def get_gemini_api_key() -> str:
+    """Busca a chave da API Gemini em st.secrets ou na sessão atual."""
+    if st.session_state.get("gemini_api_key_shared"):
+        return st.session_state["gemini_api_key_shared"]
+    try:
+        if "gemini" in st.secrets and "api_key" in st.secrets["gemini"]:
+            return str(st.secrets["gemini"]["api_key"]).strip()
+        if "GEMINI_API_KEY" in st.secrets:
+            return str(st.secrets["GEMINI_API_KEY"]).strip()
+    except Exception:
+        pass
+    return ""
+
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def get_taxas_bcb() -> dict:
+    """Busca taxas Selic, CDI e IPCA (12m) atualizadas na API do Banco Central do Brasil."""
+    taxas = {"selic": 14.25, "cdi": 14.15, "ipca": 4.50, "online": False}
+    try:
+        # Série 432: Meta Selic (% a.a.)
+        req_selic = urllib.request.Request(
+            "https://api.bcb.gov.br/dados/serie/bcdata.sgs.432/dados/ultimos/1?formato=json",
+            headers={"User-Agent": "Mozilla/5.0"},
+        )
+        with urllib.request.urlopen(req_selic, timeout=2.5) as resp:
+            dados = json.loads(resp.read().decode("utf-8"))
+            if dados and "valor" in dados[0]:
+                selic_val = float(dados[0]["valor"])
+                taxas["selic"] = selic_val
+                taxas["cdi"] = round(max(0.0, selic_val - 0.10), 2)
+                taxas["online"] = True
+
+        # Série 13522: IPCA acumulado 12 meses (%)
+        req_ipca = urllib.request.Request(
+            "https://api.bcb.gov.br/dados/serie/bcdata.sgs.13522/dados/ultimos/1?formato=json",
+            headers={"User-Agent": "Mozilla/5.0"},
+        )
+        with urllib.request.urlopen(req_ipca, timeout=2.5) as resp:
+            dados_ipca = json.loads(resp.read().decode("utf-8"))
+            if dados_ipca and "valor" in dados_ipca[0]:
+                taxas["ipca"] = float(dados_ipca[0]["valor"])
+    except Exception:
+        pass
+    return taxas
 
 
 # ─── Funções de Formatação ────────────────────────────────────────────────────

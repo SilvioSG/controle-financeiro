@@ -85,12 +85,12 @@ def gerar_insights(conn, rec, desp, simples, prefixo, mes, ano, saldo_total):
                 f"em relação ao mês anterior. Continue assim!",
             ))
 
-    # Categoria mais cara
+    # Categoria mais cara (ignorando transferências)
     top_cat = conn.execute("""
         SELECT c.nome, c.icone, SUM(t.valor) as total FROM transacoes t
         JOIN categorias c ON t.categoria_id = c.id
-        WHERE t.tipo='despesa' AND t.data LIKE ?
-        GROUP BY c.id ORDER BY total DESC LIMIT 1
+        WHERE t.tipo='despesa' AND COALESCE(t.is_transferencia,0)=0 AND t.data LIKE ?
+        GROUP BY c.id, c.nome, c.icone ORDER BY total DESC LIMIT 1
     """, (f"{prefixo}%",)).fetchone()
     if top_cat and rec > 0:
         pct_top = top_cat[2] / rec * 100
@@ -106,7 +106,7 @@ def gerar_insights(conn, rec, desp, simples, prefixo, mes, ano, saldo_total):
         tips.append((
             "💹", "Investimento",
             f"Com saldo de <strong>{fmt(saldo_total)}</strong>, considere: "
-            f"Tesouro Selic (seguro, ~14% a.a.), CDB 120% CDI (~17% a.a.) ou "
+            f"Tesouro Selic (seguro, liquidez D+1), CDB 110-120% CDI ou "
             f"LCI/LCA (isento de IR).",
         ))
 

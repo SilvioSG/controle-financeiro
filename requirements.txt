@@ -4,6 +4,4 @@ plotly
 google-genai
 fpdf2
 psycopg2-binary
-bcrypt
 supabase
-streamlit-aggrid

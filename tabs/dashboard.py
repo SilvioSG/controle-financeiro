@@ -1,22 +1,20 @@
 """
 tabs/dashboard.py — Aba principal do Dashboard.
-Versão 2.0: Hero card, KPIs com trend, calendário heatmap, feed de atividade, alertas premium.
+Versão 2.5: Filtros anti-transferência corrigidos nos gráficos e Top 5, alíquota dinâmica.
 """
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 import html
-import calendar
 
-from core.utils import fmt, get_pref, MESES_PT, PLOTLY_LAYOUT
-from core.database import read_sql, saldo_conta
+from core.utils import fmt, get_pref, MESES_PT, PLOTLY_LAYOUT, get_taxa_simples
+from core.database import read_sql
 from components.cards import (
-    metric_card, sec, hero_card, alert_card,
+    metric_card, sec, alert_card,
     activity_item, badge_card, ring_progress,
     calendar_day_cell,
 )
 from components.tooltip_helper import get_tooltip, render_tooltip_inline
-from intelligence.score import calcular_score
 from intelligence.rules import calcular_50_30_20
 
 
@@ -29,6 +27,7 @@ def render(ctx):
     rec_mes = ctx["rec_mes"]
     desp_mes = ctx["desp_mes"]
     simples_mes = ctx["simples_mes"]
+    taxa_simples = ctx.get("taxa_simples", get_taxa_simples())
     balanco_mes = ctx["balanco_mes"]
     saldo_total = ctx["saldo_total"]
     score = ctx["score"]
@@ -41,7 +40,6 @@ def render(ctx):
     # ══════════════════════════════════════════════════════════════════
     # HERO CARD — Patrimônio Líquido
     # ══════════════════════════════════════════════════════════════════
-    # Calcular patrimônio total (todas as contas)
     patrimonio = conn.execute("""
         SELECT COALESCE(SUM(
             COALESCE(c.saldo_inicial, 0) +
@@ -49,12 +47,11 @@ def render(ctx):
             COALESCE((SELECT SUM(valor) FROM transacoes WHERE conta_id = c.id AND tipo='despesa'), 0)
         ), 0) FROM contas c
     """).fetchone()[0]
-    
-    # Patrimônio do mês anterior estimado (Patrimônio atual - balanço do mês atual)
+
     patrimonio_ant = patrimonio - balanco_mes
     var_pct = (balanco_mes / abs(patrimonio_ant) * 100) if patrimonio_ant != 0 else 0
-    
-    p_ant, m_ant, a_ant = get_pref(mes_sel - 1, ano_sel)
+
+    p_ant, m_ant, _ = get_pref(mes_sel - 1, ano_sel)
     rec_ant = conn.execute(
         "SELECT COALESCE(SUM(valor),0) FROM transacoes WHERE tipo='receita' AND COALESCE(is_transferencia,0)=0 AND data LIKE ?",
         (f"{p_ant}%",),
@@ -67,12 +64,11 @@ def render(ctx):
     # Montar sparkline dos últimos 6 meses
     spark_data = []
     for i in range(5, -1, -1):
-        p, m2, a2 = get_pref(mes_sel - i, ano_sel)
+        p, _, _ = get_pref(mes_sel - i, ano_sel)
         r = conn.execute("SELECT COALESCE(SUM(valor),0) FROM transacoes WHERE tipo='receita' AND COALESCE(is_transferencia,0)=0 AND data LIKE ?", (f"{p}%",)).fetchone()[0]
         d = conn.execute("SELECT COALESCE(SUM(valor),0) FROM transacoes WHERE tipo='despesa' AND COALESCE(is_transferencia,0)=0 AND data LIKE ?", (f"{p}%",)).fetchone()[0]
-        spark_data.append(r - d - (r * 0.06))
+        spark_data.append(r - d - (r * taxa_simples))
 
-    # SVG Sparkline embutida (base64 para compatibilidade com st.markdown)
     if any(v != 0 for v in spark_data):
         max_s = max(abs(v) for v in spark_data) or 1
         min_s = min(spark_data)
@@ -102,7 +98,6 @@ def render(ctx):
     change_cls = "positive" if var_pct >= 0 else "negative"
     change_arrow = "↑" if var_pct >= 0 else "↓"
 
-    # Montar sub_parts
     sub_parts = []
     if saldo_reserva > 0:
         sub_parts.append(f"🛡️ Reserva: {fmt(saldo_reserva)}")
@@ -133,16 +128,16 @@ def render(ctx):
     st.html("<br>")
 
     # ══════════════════════════════════════════════════════════════════
-    # ALERTAS INTELIGENTES (Premium)
+    # ALERTAS INTELIGENTES
     # ══════════════════════════════════════════════════════════════════
     alertas = []
-    
+
     if rec_mes > 0 and (desp_mes / rec_mes) > 0.8:
         alertas.append(("🚨", "Atenção: Suas despesas já ultrapassaram 80% da receita deste mês!", "critical"))
-        
+
     if balanco_mes > 500:
         alertas.append(("💡", f"Você tem {fmt(balanco_mes)} sobrando este mês. Que tal guardar na Reserva?", "positive"))
-        
+
     if hoje.month == mes_sel and hoje.year == ano_sel:
         recorrentes_count = conn.execute(
             "SELECT COUNT(id) FROM transacoes WHERE recorrente=1 AND tipo='despesa' AND data LIKE ? AND substr(data,9,2) > ?",
@@ -157,7 +152,7 @@ def render(ctx):
         st.html("<br>")
 
     # ══════════════════════════════════════════════════════════════════
-    # QUANTO POSSO GASTAR HOJE (Premium)
+    # QUANTO POSSO GASTAR HOJE
     # ══════════════════════════════════════════════════════════════════
     if rec_mes > 0 and hoje.month == mes_sel and hoje.year == ano_sel:
         dias_restantes = max(dias_mes - hoje.day, 1)
@@ -167,17 +162,14 @@ def render(ctx):
             (f"{prefixo_mes}%", f"{hoje.day:02d}"),
         ).fetchone()[0]
         valor_hoje = max(0, (rec_mes - desp_mes - simples_mes - recorrentes_futuras) / dias_restantes)
-        
-        # Calcular % da receita gasta
+
         pct_gasto = (desp_mes / rec_mes * 100) if rec_mes > 0 else 0
         cor_hoje = "#00d4aa" if valor_hoje > 30 else ("#f59e0b" if valor_hoje > 10 else "#ff4b6e")
         emoji_hoje = "😎" if valor_hoje > 50 else ("🙂" if valor_hoje > 20 else "😬")
         nivel = "Tranquilo" if valor_hoje > 50 else ("Cuidado" if valor_hoje > 20 else "Aperto")
-        
-        # Ring progress para % gasto
-        ring_html = ring_progress(min(pct_gasto, 100), size=65, stroke=5, 
-                                   color=cor_hoje, label=f"{pct_gasto:.0f}%")
-        
+
+        ring_html = ring_progress(min(pct_gasto, 100), size=65, stroke=5, color=cor_hoje, label=f"{pct_gasto:.0f}%")
+
         st.html(f"""
             <div class="glass-card" style="margin-bottom:1.2rem; border-left: 4px solid {cor_hoje};">
                 <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:1rem;">
@@ -211,25 +203,25 @@ def render(ctx):
     # CARDS KPI COM TRENDS
     # ══════════════════════════════════════════════════════════════════
     sec("📈", f"Resumo de {MESES_PT[mes_sel]}")
-    
-    # Calcular trends vs mês anterior
+
     def calc_trend(atual, anterior):
         if anterior > 0:
             pct = ((atual - anterior) / anterior) * 100
             return f"{abs(pct):.0f}%", "up" if pct > 0 else "down"
         return None, "neutral"
-    
+
     trend_rec, dir_rec = calc_trend(rec_mes, rec_ant)
     trend_desp, dir_desp = calc_trend(desp_mes, desp_ant)
-    
+
     b_cls = "mv-green" if balanco_mes >= 0 else "mv-red"
     b_bdg = "mb-green" if balanco_mes >= 0 else "mb-red"
+    badge_imp = f"{taxa_simples*100:.1f}% s/ receita" if taxa_simples > 0 else "Isento (0%)"
 
     html_cards = f"""
     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(165px, 1fr)); gap: 0.8rem; margin-bottom: 1rem;">
         <div>{metric_card("💵","green","Receitas",fmt(rec_mes),"mv-green","Entradas","mb-green", trend_rec, dir_rec)}</div>
         <div>{metric_card("💳","red","Despesas",fmt(desp_mes),"mv-red","Saídas","mb-red", trend_desp, "down" if dir_desp=="up" else "up" if dir_desp=="down" else "neutral")}</div>
-        <div>{metric_card("📋","amber","Simples Nacional" + get_tooltip("simples"),fmt(simples_mes),"mv-amber","6% s/ receita","mb-amber")}</div>
+        <div>{metric_card("📋","amber","Imposto / Simples" + get_tooltip("simples"),fmt(simples_mes),"mv-amber",badge_imp,"mb-amber")}</div>
         <div>{metric_card("📊","purple","Balanço Líquido" + get_tooltip("balanco"),fmt(balanco_mes),b_cls,"Superávit" if balanco_mes>=0 else "Déficit",b_bdg)}</div>
         <div>{metric_card("💰","blue","Saldo do Mês",fmt(saldo_total),"mv-blue","Livre este mês","mb-blue")}</div>
     </div>
@@ -237,31 +229,27 @@ def render(ctx):
     st.html(html_cards)
 
     # ══════════════════════════════════════════════════════════════════
-    # EVOLUÇÃO DIÁRIA + DESPESAS POR CATEGORIA (lado a lado)
+    # EVOLUÇÃO DIÁRIA + DESPESAS POR CATEGORIA
     # ══════════════════════════════════════════════════════════════════
     sec("📈", "Evolução do Saldo no Mês")
     from core.models import get_agrupamento_diario_mes
     dados_diarios = get_agrupamento_diario_mes(conn, prefixo_mes)
     dict_diario = {int(r[0]): {"rec": r[1], "desp": r[2]} for r in dados_diarios}
-    
+
     datas, saldos_dia, acum = [], [], 0
     for d in range(1, dias_mes + 1):
         dia_info = dict_diario.get(d, {"rec": 0, "desp": 0})
-        r = dia_info["rec"]
-        de = dia_info["desp"]
-        acum += r - de
+        acum += dia_info["rec"] - dia_info["desp"]
         datas.append(d)
         saldos_dia.append(acum)
-    
+
     fig_l = go.Figure()
-    # Área de fundo
     fig_l.add_trace(go.Scatter(
         x=datas, y=saldos_dia, mode="lines",
         line=dict(color="rgba(78,140,255,0)", width=0),
         fill="tozeroy", fillcolor="rgba(78,140,255,0.06)",
         showlegend=False, hoverinfo="skip",
     ))
-    # Linha principal
     fig_l.add_trace(go.Scatter(
         x=datas, y=saldos_dia, mode="lines+markers",
         line=dict(color="#4e8cff", width=2.5, shape="spline"),
@@ -275,7 +263,7 @@ def render(ctx):
         yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.03)",
                    zeroline=True, zerolinecolor="rgba(255,75,110,0.3)"),
     )
-    st.plotly_chart(fig_l, key="line_d")
+    st.plotly_chart(fig_l, key="line_d", use_container_width=True)
 
     # ── Gráficos ──────────────────────────────────────────────────────
     col_g1, col_g2 = st.columns(2)
@@ -283,8 +271,9 @@ def render(ctx):
         sec("🍩", "Despesas por Categoria")
         dpc = read_sql(
             "SELECT c.nome, c.icone, SUM(t.valor) as total FROM transacoes t "
-            "JOIN categorias c ON t.categoria_id=c.id WHERE t.tipo='despesa' AND t.data LIKE ? "
-            "GROUP BY c.id ORDER BY total DESC",
+            "JOIN categorias c ON t.categoria_id=c.id "
+            "WHERE t.tipo='despesa' AND COALESCE(t.is_transferencia,0)=0 AND t.data LIKE ? "
+            "GROUP BY c.id, c.nome, c.icone ORDER BY total DESC",
             conn, params=(f"{prefixo_mes}%",),
         )
         if not dpc.empty:
@@ -305,26 +294,26 @@ def render(ctx):
                 showlegend=True, height=340,
                 legend=dict(font=dict(size=9, color="#8b95a5"), bgcolor="rgba(0,0,0,0)", y=0.5, x=1.02),
                 annotations=[dict(text=f"<b>{fmt(desp_mes)}</b>", x=0.5, y=0.5,
-                                   font=dict(size=12, color="#f0f2f5"), showarrow=False)],
+                                  font=dict(size=12, color="#f0f2f5"), showarrow=False)],
             )
-            st.plotly_chart(fig_p, key="pie_d")
+            st.plotly_chart(fig_p, key="pie_d", use_container_width=True)
         else:
             st.info("Sem despesas neste mês.")
 
     with col_g2:
         sec("📊", "Receitas vs Despesas (6 meses)")
         from core.models import get_agrupamento_mensal_ano
-        
+
         meses_ano_atual = get_agrupamento_mensal_ano(conn, ano_sel)
         dict_mensal_atual = {int(r[0]): {"rec": r[1], "desp": r[2]} for r in meses_ano_atual}
-        
+
         ano_anterior = ano_sel - 1
         meses_ano_ant = get_agrupamento_mensal_ano(conn, ano_anterior)
         dict_mensal_ant = {int(r[0]): {"rec": r[1], "desp": r[2]} for r in meses_ano_ant}
 
         ml, rv, dv = [], [], []
         for i in range(5, -1, -1):
-            p, m2, a2 = get_pref(mes_sel - i, ano_sel)
+            _, m2, a2 = get_pref(mes_sel - i, ano_sel)
             ml.append(MESES_PT[m2][:3])
             if a2 == ano_sel:
                 dados_mes = dict_mensal_atual.get(m2, {"rec": 0, "desp": 0})
@@ -332,7 +321,7 @@ def render(ctx):
                 dados_mes = dict_mensal_ant.get(m2, {"rec": 0, "desp": 0})
             rv.append(dados_mes["rec"])
             dv.append(dados_mes["desp"])
-        
+
         fig_b = go.Figure()
         fig_b.add_trace(go.Bar(x=ml, y=rv, name="Receitas", marker=dict(color="#00d4aa", cornerradius=6)))
         fig_b.add_trace(go.Bar(x=ml, y=dv, name="Despesas", marker=dict(color="#ff4b6e", cornerradius=6)))
@@ -341,60 +330,48 @@ def render(ctx):
             yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.03)"),
             xaxis=dict(showgrid=False, tickangle=0),
         )
-        st.plotly_chart(fig_b, key="bar_d")
+        st.plotly_chart(fig_b, key="bar_d", use_container_width=True)
 
     # ══════════════════════════════════════════════════════════════════
-    # CALENDÁRIO HEATMAP + FEED DE ATIVIDADE (lado a lado)
+    # CALENDÁRIO HEATMAP + FEED DE ATIVIDADE
     # ══════════════════════════════════════════════════════════════════
     col_cal, col_feed = st.columns([3, 2])
-    
+
     with col_cal:
         sec("📅", "Calendário de Gastos")
-        
-        # Buscar gastos por dia
-        gastos_por_dia = {}
-        for row in dados_diarios:
-            dia = int(row[0])
-            gastos_por_dia[dia] = row[2]  # desp
-        
-        # Buscar dias com contas a pagar (recorrentes)
+
+        gastos_por_dia = {int(row[0]): row[2] for row in dados_diarios}
+
         dias_com_conta = set()
-        if hoje.month == mes_sel and hoje.year == ano_sel:
-            recorrentes = conn.execute(
-                "SELECT substr(data,9,2) FROM transacoes WHERE recorrente=1 AND tipo='despesa'"
-            ).fetchall()
-            for r in recorrentes:
-                try:
-                    dias_com_conta.add(int(r[0]))
-                except Exception:
-                    pass
-        
+        recorrentes_cal = conn.execute(
+            "SELECT substr(data,9,2) FROM transacoes WHERE recorrente=1 AND tipo='despesa'"
+        ).fetchall()
+        for r in recorrentes_cal:
+            try:
+                dias_com_conta.add(int(r[0]))
+            except Exception:
+                pass
+
         max_gasto = max(gastos_por_dia.values()) if gastos_por_dia else 1
-        
-        # Montar grid do calendário
+
         import datetime
         primeiro_dia = datetime.date(ano_sel, mes_sel, 1)
-        offset = primeiro_dia.weekday()  # 0=Monday
-        
+        offset = primeiro_dia.weekday()
+
         cal_html = '<div class="cal-grid">'
-        # Headers
         for dia_semana in ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"]:
             cal_html += f'<div class="cal-header">{dia_semana}</div>'
-        
-        # Empty cells antes do dia 1
+
         for _ in range(offset):
             cal_html += calendar_day_cell(0, is_empty=True)
-        
-        # Dias do mês
+
         for d in range(1, dias_mes + 1):
             gasto = gastos_por_dia.get(d, 0)
             is_today = (d == hoje.day and mes_sel == hoje.month and ano_sel == hoje.year)
-            has_bill = d in dias_com_conta and (d >= hoje.day if hoje.month == mes_sel else True)
+            has_bill = d in dias_com_conta and (d >= hoje.day if (hoje.month == mes_sel and hoje.year == ano_sel) else True)
             cal_html += calendar_day_cell(d, gasto, max_gasto, is_today, has_bill)
-        
+
         cal_html += '</div>'
-        
-        # Legenda
         cal_html += """
         <div style="display:flex;align-items:center;gap:0.8rem;margin-top:0.6rem;justify-content:center;">
             <div style="display:flex;align-items:center;gap:0.3rem;">
@@ -407,24 +384,22 @@ def render(ctx):
             </div>
             <div style="display:flex;align-items:center;gap:0.3rem;">
                 <div style="width:5px;height:5px;border-radius:50%;background:var(--red);"></div>
-                <span style="font-size:0.58rem;color:var(--text3);">Conta a pagar</span>
+                <span style="font-size:0.58rem;color:var(--text3);">Conta fixa</span>
             </div>
         </div>
         """
-        
         st.html(cal_html)
-    
+
     with col_feed:
         sec("⚡", "Atividade Recente")
-        
-        # Últimas 5 transações
+
         ultimas = read_sql(
             "SELECT t.descricao, t.valor, t.tipo, t.data, c.icone, c.nome as cat "
             "FROM transacoes t LEFT JOIN categorias c ON t.categoria_id=c.id "
             "WHERE t.data LIKE ? ORDER BY t.data DESC, t.id DESC LIMIT 5",
             conn, params=(f"{prefixo_mes}%",),
         )
-        
+
         if not ultimas.empty:
             feed_html = '<div class="activity-feed">'
             for _, row in ultimas.iterrows():
@@ -457,20 +432,20 @@ def render(ctx):
     if hoje.month == mes_sel and hoje.year == ano_sel:
         sec("📈", "Projeção de Saldo (Próximos 30 dias)")
         st.caption("Evolução do seu saldo bancário baseada em contas fixas, faturas e lançamentos futuros.")
-        
+
         import datetime
         datas_futuras = [hoje + datetime.timedelta(days=i) for i in range(31)]
         saldos_projetados = []
         saldo_simulado = saldo_total
-        
+
         tx_futuras_db = conn.execute(
-            "SELECT data, valor, tipo FROM transacoes WHERE data > ?", (hoje.strftime("%Y-%m-%d"),)
+            "SELECT data, valor, tipo FROM transacoes WHERE COALESCE(is_transferencia,0)=0 AND data > ?",
+            (hoje.strftime("%Y-%m-%d"),),
         ).fetchall()
         tx_futuras_dict = {}
         for d, v, t in tx_futuras_db:
-            if d not in tx_futuras_dict: tx_futuras_dict[d] = 0
-            tx_futuras_dict[d] += v if t == 'receita' else -v
-            
+            tx_futuras_dict[d] = tx_futuras_dict.get(d, 0) + (v if t == 'receita' else -v)
+
         recorrentes = conn.execute(
             "SELECT t.id, t.descricao, t.valor, t.data, c.icone "
             "FROM transacoes t LEFT JOIN categorias c ON t.categoria_id = c.id "
@@ -481,11 +456,11 @@ def render(ctx):
         ano_atual = hoje.year
         mes_prox = mes_atual + 1 if mes_atual < 12 else 1
         ano_prox = ano_atual if mes_atual < 12 else ano_atual + 1
-        
+
         pagas_db = conn.execute(
             "SELECT descricao, substr(data, 6, 2) FROM transacoes "
             "WHERE tipo = 'despesa' AND (data LIKE ? OR data LIKE ?)",
-            (f"{ano_atual}-{mes_atual:02d}%", f"{ano_prox}-{mes_prox:02d}%")
+            (f"{ano_atual}-{mes_atual:02d}%", f"{ano_prox}-{mes_prox:02d}%"),
         ).fetchall()
         pagas_set = {(r[0], int(r[1])) for r in pagas_db}
 
@@ -494,32 +469,34 @@ def render(ctx):
             if str_data in tx_futuras_dict:
                 saldo_simulado += tx_futuras_dict[str_data]
             for r in recorrentes:
-                dia_vencimento = int(r[3][-2:])
+                try:
+                    dia_vencimento = int(r[3][-2:])
+                except Exception:
+                    dia_vencimento = 1
                 if dia_data.day == dia_vencimento:
                     if (r[1], dia_data.month) not in pagas_set or dia_data.month != hoje.month:
                         saldo_simulado -= r[2]
             saldos_projetados.append(saldo_simulado)
-            
+
         fig_proj = go.Figure()
         fig_proj.add_trace(go.Scatter(
-            x=datas_futuras, y=saldos_projetados, 
+            x=datas_futuras, y=saldos_projetados,
             mode='lines', name='Saldo Projetado',
             line=dict(color='#00d4aa', width=3, shape='spline'),
-            fill='tozeroy', fillcolor='rgba(0, 212, 170, 0.08)'
+            fill='tozeroy', fillcolor='rgba(0, 212, 170, 0.08)',
         ))
-        
+
         layout_kwargs = PLOTLY_LAYOUT.copy()
         layout_kwargs["margin"] = dict(l=0, r=0, t=10, b=0)
         layout_kwargs["height"] = 250
-        
+
         fig_proj.update_layout(
             **layout_kwargs,
-            yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.03)", zeroline=True, zerolinecolor="rgba(255,255,255,0.1)"), 
-            xaxis=dict(showgrid=False, tickformat="%d/%m")
+            yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.03)", zeroline=True, zerolinecolor="rgba(255,255,255,0.1)"),
+            xaxis=dict(showgrid=False, tickformat="%d/%m"),
         )
-        st.plotly_chart(fig_proj, width='stretch')
+        st.plotly_chart(fig_proj, use_container_width=True)
         st.html("<br>")
-    
 
     # ══════════════════════════════════════════════════════════════════
     # SAÚDE FINANCEIRA + REGRA 50-30-20
@@ -551,7 +528,7 @@ def render(ctx):
                 paper_bgcolor="rgba(0,0,0,0)", font=dict(family="Inter"),
                 height=250, margin=dict(l=30, r=30, t=60, b=10),
             )
-            st.plotly_chart(fig_gauge, key="gauge_score")
+            st.plotly_chart(fig_gauge, key="gauge_score", use_container_width=True)
 
         with col_rule:
             sec("📐", "Regra 50-30-20", tooltip="regra503020")
@@ -565,7 +542,13 @@ def render(ctx):
                 pct = min(data["pct"], 100)
                 ideal_pos = data["ideal"]
                 status = "✅" if data["pct"] <= data["ideal"] + 5 else "⚠️"
-                st.html(f'<div class="rule-bar-wrap"><div class="rule-bar-label"><span class="rule-bar-name">{nome} {status}</span><span class="rule-bar-vals">{int(data["pct"])}% real &middot; {data["ideal"]}% ideal &middot; {fmt(data["valor"])}</span></div><div class="rule-bar-bg"><div class="rule-bar-fill" style="width:{pct}%; background: {cor};"></div><div class="rule-bar-ideal" style="left:{ideal_pos}%;"></div></div></div>')
+                st.html(
+                    f'<div class="rule-bar-wrap"><div class="rule-bar-label">'
+                    f'<span class="rule-bar-name">{nome} {status}</span>'
+                    f'<span class="rule-bar-vals">{int(data["pct"])}% real &middot; {data["ideal"]}% ideal &middot; {fmt(data["valor"])}</span>'
+                    f'</div><div class="rule-bar-bg"><div class="rule-bar-fill" style="width:{pct}%; background: {cor};"></div>'
+                    f'<div class="rule-bar-ideal" style="left:{ideal_pos}%;"></div></div></div>'
+                )
 
             if rec_mes > 0:
                 pct_livre = max(0, 100 - regra["necessidades"]["pct"] - regra["desejos"]["pct"])
@@ -583,10 +566,8 @@ def render(ctx):
     # CONQUISTAS E ATALHOS
     # ══════════════════════════════════════════════════════════════════
     with st.expander("🏅 Conquistas e ⚡ Atalhos Rápidos", expanded=False):
-        # ── Gamificação (Streaks e Badges) ──────────────────────────────
         from components.cards import streak_bar
-        
-        # Calcular Streak (Dias seguidos com transações)
+
         datas_tx = conn.execute("SELECT DISTINCT data FROM transacoes ORDER BY data DESC").fetchall()
         streak = 0
         if datas_tx:
@@ -595,44 +576,36 @@ def render(ctx):
             import datetime
             hoje_str = date.today().strftime("%Y-%m-%d")
             ontem_str = (date.today() - timedelta(days=1)).strftime("%Y-%m-%d")
-            
-            # O streak começa se a última tx for hoje ou ontem
+
             if datas_str and (datas_str[0] == hoje_str or datas_str[0] == ontem_str):
                 streak = 1
                 curr_date = datetime.datetime.strptime(datas_str[0], "%Y-%m-%d").date()
                 for d_str in datas_str[1:]:
-                    d_date = datetime.datetime.strptime(d_str, "%Y-%m-%d").date()
-                    if (curr_date - d_date).days == 1:
-                        streak += 1
-                        curr_date = d_date
-                    else:
+                    try:
+                        d_date = datetime.datetime.strptime(d_str, "%Y-%m-%d").date()
+                        if (curr_date - d_date).days == 1:
+                            streak += 1
+                            curr_date = d_date
+                        else:
+                            break
+                    except Exception:
                         break
-                        
+
         if streak > 0:
             st.html(streak_bar(streak, "dias seguidos registrando!"))
             st.html("<br>")
 
         badges_ganhas = []
-    
         if (rec_mes - desp_mes - simples_mes) > 0 and desp_mes > 0:
             badges_ganhas.append(("💰", "Poupador", "Fechando o mês no azul", "#4e8cff"))
-        
+
         saldo_reserva_local = ctx.get("saldo_reserva", 0)
         if saldo_reserva_local > 0 and desp_mes > 0 and (saldo_reserva_local / desp_mes) >= 3:
             badges_ganhas.append(("🛡️", "Blindado", "+3 meses de reserva", "#a855f7"))
-        
-        aportes = conn.execute(
-            "SELECT COUNT(*) FROM transacoes t JOIN contas c ON t.conta_id = c.id "
-            "WHERE c.tipo = 'Corretora/Investimento' AND t.tipo = 'despesa' AND t.data LIKE ?",
-            (f"{prefixo_mes}%",)
-        ).fetchone()[0]
-        if aportes > 0:
-            badges_ganhas.append(("📈", "Investidor", "Aportou neste mês", "#00d4aa"))
-        
-        # Badges extras
+
         if score >= 80:
             badges_ganhas.append(("🌟", "Finanças de Elite", f"Score {score}/100", "#f59e0b"))
-        
+
         total_txs_mes = conn.execute(
             "SELECT COUNT(id) FROM transacoes WHERE data LIKE ?", (f"{prefixo_mes}%",)
         ).fetchone()[0]
@@ -648,14 +621,13 @@ def render(ctx):
             st.html(badges_html)
             st.html("<br>")
 
-        # ── Atalhos de Lançamento ──────────────────────────────────────
-        sec("⚡", "Lançamento Rápido")
+        sec("⚡", "Lançamento Rápido (1 Clique)")
         atalhos = conn.execute(
             "SELECT a.id, a.descricao, a.valor, a.icone, a.tipo, c.nome, co.nome, a.categoria_id, a.conta_id "
             "FROM atalhos a LEFT JOIN categorias c ON a.categoria_id = c.id "
             "LEFT JOIN contas co ON a.conta_id = co.id"
         ).fetchall()
-    
+
         if atalhos:
             cols_at = st.columns(min(len(atalhos) + 1, 6))
             for i, a in enumerate(atalhos):
@@ -664,14 +636,14 @@ def render(ctx):
                         conn.execute(
                             "INSERT INTO transacoes (tipo,descricao,valor,data,categoria_id,conta_id) "
                             "VALUES (?,?,?,?,?,?)",
-                            (a[4], a[1], a[2], hoje.strftime("%Y-%m-%d"), a[7], a[8])
+                            (a[4], a[1], a[2], hoje.strftime("%Y-%m-%d"), a[7], a[8]),
                         )
                         conn.commit()
                         from core.models import clear_cache_transacoes
                         clear_cache_transacoes()
-                        st.success(f"Lançamento de {fmt(a[2])} adicionado!")
+                        st.toast(f"⚡ Lançamento de {fmt(a[2])} adicionado!")
                         st.rerun()
-        
+
             with cols_at[len(atalhos) % 6]:
                 with st.popover("⚙️ Gerenciar"):
                     st.write("Adicionar Novo Atalho")
@@ -679,25 +651,25 @@ def render(ctx):
                         nat_desc = st.text_input("Descrição", placeholder="Ex: Cafezinho")
                         nat_val = st.number_input("Valor", min_value=0.1, step=1.0)
                         nat_ic = st.selectbox("Ícone", ["☕", "🚗", "🍔", "💊", "📱", "🍺", "🎫"])
-                    
+
                         cats_disp = {f"{r[1]} {r[2]}": r[0] for r in conn.execute("SELECT id, icone, nome FROM categorias").fetchall()}
                         conts_disp = {f"{r[1]} {r[2]}": r[0] for r in conn.execute("SELECT id, icone, nome FROM contas").fetchall()}
-                    
+
                         if cats_disp and conts_disp:
                             nat_cat = st.selectbox("Categoria", list(cats_disp.keys()))
                             nat_conta = st.selectbox("Conta", list(conts_disp.keys()))
-                    
+
                         if st.form_submit_button("Salvar Atalho") and cats_disp and conts_disp:
                             conn.execute(
                                 "INSERT INTO atalhos (descricao,valor,categoria_id,conta_id,icone,tipo) VALUES (?,?,?,?,?,?)",
-                                (nat_desc, nat_val, cats_disp[nat_cat], conts_disp[nat_conta], nat_ic, "despesa")
+                                (nat_desc, nat_val, cats_disp[nat_cat], conts_disp[nat_conta], nat_ic, "despesa"),
                             )
                             conn.commit()
                             st.rerun()
-                
+
                     st.write("Atalhos Existentes")
                     for a in atalhos:
-                        ca1, ca2 = st.columns([4,1])
+                        ca1, ca2 = st.columns([4, 1])
                         with ca1:
                             st.write(f"{a[3]} {a[1]} - {fmt(a[2])}")
                         with ca2:
@@ -706,75 +678,68 @@ def render(ctx):
                                 conn.commit()
                                 st.rerun()
         else:
-            st.html("""
-                <div class="empty-state" style="padding:1.5rem;">
-                    <div class="empty-icon">⚡</div>
-                    <div class="empty-title">Sem atalhos ainda</div>
-                    <div class="empty-desc">Crie atalhos para lançar despesas frequentes com um clique.</div>
-                </div>
-            """)
-            with st.expander("➕ Criar Primeiro Atalho"):
+            with st.expander("➕ Criar Primeiro Atalho de 1 Clique"):
                 with st.form("form_primeiro_atalho"):
                     nat_desc = st.text_input("Descrição", placeholder="Ex: Uber")
                     nat_val = st.number_input("Valor Padrão", min_value=0.1, step=1.0, value=20.0)
                     nat_ic = st.selectbox("Ícone", ["🚗", "☕", "🍔", "💊", "📱", "🍺", "🎫"])
-                
+
                     cats_disp = {f"{r[1]} {r[2]}": r[0] for r in conn.execute("SELECT id, icone, nome FROM categorias").fetchall()}
                     conts_disp = {f"{r[1]} {r[2]}": r[0] for r in conn.execute("SELECT id, icone, nome FROM contas").fetchall()}
-                
+
                     if cats_disp and conts_disp:
                         nat_cat = st.selectbox("Categoria", list(cats_disp.keys()))
                         nat_conta = st.selectbox("Conta", list(conts_disp.keys()))
-                
+
                     if st.form_submit_button("Salvar Atalho") and cats_disp and conts_disp:
                         conn.execute(
                             "INSERT INTO atalhos (descricao,valor,categoria_id,conta_id,icone,tipo) VALUES (?,?,?,?,?,?)",
-                            (nat_desc, nat_val, cats_disp[nat_cat], conts_disp[nat_conta], nat_ic, "despesa")
+                            (nat_desc, nat_val, cats_disp[nat_cat], conts_disp[nat_conta], nat_ic, "despesa"),
                         )
                         conn.commit()
                         st.rerun()
 
-
     # ══════════════════════════════════════════════════════════════════
     # PREVISÃO DE CONTAS + TOP 5 + VISÃO ANUAL
     # ══════════════════════════════════════════════════════════════════
-    with st.expander("📅 Previsão de Contas a Pagar", expanded=False):
+    with st.expander("📅 Previsão de Contas Fixas a Pagar", expanded=False):
         sec("📅", "Próximos Vencimentos")
         recorrentes = conn.execute(
             "SELECT t.id, t.descricao, t.valor, t.data, c.icone "
             "FROM transacoes t LEFT JOIN categorias c ON t.categoria_id = c.id "
-            "WHERE t.recorrente=1 AND t.tipo='despesa' "
-            "ORDER BY substr(t.data,9,2) ASC"
+            "WHERE t.recorrente=1 AND t.tipo='despesa' AND t.data LIKE ? "
+            "ORDER BY substr(t.data,9,2) ASC",
+            (f"{prefixo_mes}%",),
         ).fetchall()
-    
+
         if recorrentes:
-            futuras = [r for r in recorrentes if int(r[3][-2:]) >= hoje.day]
+            dia_ref = hoje.day if (hoje.month == mes_sel and hoje.year == ano_sel) else 1
+            futuras = [r for r in recorrentes if int(r[3][-2:]) >= dia_ref]
             if futuras:
                 for r in futuras:
                     dia_vencimento = int(r[3][-2:])
-                    dias_falta = dia_vencimento - hoje.day
-                    status_venc = "Hoje!" if dias_falta == 0 else f"Faltam {dias_falta} dias"
+                    dias_falta = dia_vencimento - dia_ref
+                    status_venc = "Hoje!" if dias_falta == 0 else f"Em {dias_falta} dias"
                     cor_venc = "#ff4b6e" if dias_falta <= 3 else "#f59e0b" if dias_falta <= 7 else "#00d4aa"
-                
+
                     st.html(f"""
                     <div class="alert-card" style="border-color:{cor_venc};">
                         <div style="display:flex;align-items:center;gap:0.8rem;flex:1;">
                             <div style="font-size:1.5rem;">{r[4] or '📌'}</div>
                             <div>
-                                <div style="font-weight:600; font-size:0.9rem;">{r[1]}</div>
-                                <div style="font-size:0.7rem; color:{cor_venc};">{status_venc} (Dia {dia_vencimento})</div>
+                                <div style="font-weight:600; font-size:0.9rem;">{html.escape(str(r[1]))}</div>
+                                <div style="font-size:0.7rem; color:{cor_venc};">{status_venc} (Dia {dia_vencimento:02d})</div>
                             </div>
                         </div>
                         <div style="font-weight:700; color:#ff4b6e;">- {fmt(r[2])}</div>
                     </div>
                     """)
             else:
-                st.info("Nenhuma conta fixa para vencer nos próximos dias deste mês! 🎉")
+                st.info("Nenhuma conta fixa pendente para os próximos dias deste mês! 🎉")
         else:
-            st.info("Nenhuma conta recorrente cadastrada.")
-    
+            st.info("Nenhuma conta recorrente registrada neste mês.")
+
         st.html("<br>")
-    
 
     with st.expander("🏆 Top 5 Gastos e Visão Anual", expanded=False):
         col_top, col_annual = st.columns(2)
@@ -784,7 +749,7 @@ def render(ctx):
             top5 = read_sql(
                 "SELECT t.descricao, t.valor, t.data, c.icone, c.nome as cat "
                 "FROM transacoes t LEFT JOIN categorias c ON t.categoria_id=c.id "
-                "WHERE t.tipo='despesa' AND t.data LIKE ? "
+                "WHERE t.tipo='despesa' AND COALESCE(t.is_transferencia,0)=0 AND t.data LIKE ? "
                 "ORDER BY t.valor DESC LIMIT 5",
                 conn, params=(f"{prefixo_mes}%",),
             )
@@ -797,8 +762,8 @@ def render(ctx):
                             <div class="top-exp-left">
                                 <div class="top-exp-rank">{rank_icons[i]}</div>
                                 <div>
-                                    <div class="top-exp-name">{row['icone'] or '📌'} {html.escape(row['descricao'])}</div>
-                                    <div style="font-size:0.65rem;color:#5a6478;">{html.escape(row['cat']) if row['cat'] else ''} · {row['data']}</div>
+                                    <div class="top-exp-name">{row['icone'] or '📌'} {html.escape(str(row['descricao']))}</div>
+                                    <div style="font-size:0.65rem;color:#5a6478;">{html.escape(str(row['cat'])) if pd.notna(row['cat']) else ''} · {row['data']}</div>
                                 </div>
                             </div>
                             <div>
@@ -814,15 +779,15 @@ def render(ctx):
             sec("📅", f"Visão Anual {ano_sel}")
             ml_ano, rv_ano, dv_ano = [], [], []
             total_rec_ano, total_desp_ano = 0, 0
-        
+
             meses_ano_atual_total = get_agrupamento_mensal_ano(conn, ano_sel)
             dict_mensal_total = {int(r[0]): {"rec": r[1], "desp": r[2]} for r in meses_ano_atual_total}
-        
+
             for m in range(1, 13):
                 dados_mes = dict_mensal_total.get(m, {"rec": 0, "desp": 0})
                 r_val = dados_mes["rec"]
                 d_val = dados_mes["desp"]
-            
+
                 ml_ano.append(MESES_PT[m][:3])
                 rv_ano.append(r_val)
                 dv_ano.append(d_val)
@@ -831,11 +796,10 @@ def render(ctx):
 
             saldo_acumulado = []
             acc = 0
-            melhor_mes = None
-            pior_mes = None
+            melhor_mes, pior_mes = None, None
             melhor_saldo = -float('inf')
             pior_saldo = float('inf')
-        
+
             for m_idx, (r, d) in enumerate(zip(rv_ano, dv_ano)):
                 saldo_mes = r - d
                 if r > 0 or d > 0:
@@ -852,18 +816,18 @@ def render(ctx):
             fig_ano.add_trace(go.Bar(x=ml_ano, y=rv_ano, name="Receitas", marker=dict(color="#00d4aa", cornerradius=4)))
             fig_ano.add_trace(go.Bar(x=ml_ano, y=dv_ano, name="Despesas", marker=dict(color="#ff4b6e", cornerradius=4)))
             fig_ano.add_trace(go.Scatter(x=ml_ano, y=saldo_acumulado, name="Saldo Acum.", mode='lines+markers', line=dict(color="#4e8cff", width=2)))
-        
+
             fig_ano.update_layout(
                 **PLOTLY_LAYOUT, barmode="group", height=250,
                 yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.03)"),
                 xaxis=dict(showgrid=False, tickangle=0),
             )
-            st.plotly_chart(fig_ano, key="bar_anual")
+            st.plotly_chart(fig_ano, key="bar_anual", use_container_width=True)
 
             media_mensal = total_desp_ano / max(mes_sel, 1)
             melhor_str = f"{melhor_mes} ({fmt(melhor_saldo)})" if melhor_mes else "-"
             pior_str = f"{pior_mes} ({fmt(pior_saldo)})" if pior_mes else "-"
-        
+
             st.html(f"""
                 <div style="display:flex;gap:0.8rem;flex-wrap:wrap; margin-bottom: 1rem;">
                     <div class="glass-card" style="flex:1;text-align:center;padding:0.7rem;">

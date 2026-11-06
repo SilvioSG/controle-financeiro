@@ -1,12 +1,12 @@
 """
 tabs/metas.py — Aba de Metas Financeiras.
-Versão 2.0: Ring progress, estimativa de tempo, badges de conquista, calculadora melhorada.
+Versão 2.5: Vínculo opcional com conta bancária/reserva, ring progress, estimativa de tempo, calculadora de reserva.
 """
 import streamlit as st
 import pandas as pd
 
 from core.utils import fmt
-from core.models import get_metas
+from core.models import get_metas, get_contas
 from components.cards import sec, ring_progress, badge_card
 from components.tooltip_helper import get_tooltip
 
@@ -20,9 +20,9 @@ def render(ctx):
 
     sec("🛡️", "Metas Financeiras", tooltip="reserva")
     metas_df = get_metas(conn)
+    contas_df = get_contas(conn)
 
     if not metas_df.empty:
-        # Calcular média de economia mensal para estimativa
         desp_mes = ctx.get("desp_mes", 0)
         rec_mes = ctx.get("rec_mes", 0)
         simples_mes = ctx.get("simples_mes", 0)
@@ -31,11 +31,9 @@ def render(ctx):
         for _, m in metas_df.iterrows():
             pct = min(m["valor_atual"] / m["valor_meta"], 1.0) * 100 if m["valor_meta"] > 0 else 0
             rest = max(m["valor_meta"] - m["valor_atual"], 0)
-            
-            # Cor baseada no progresso
+
             ring_color = "#00d4aa" if pct >= 80 else ("#f59e0b" if pct >= 40 else "#ff4b6e")
-            
-            # Estimativa de tempo
+
             tempo_est = ""
             if rest > 0 and economia_mensal > 0:
                 meses_falta = rest / economia_mensal
@@ -48,8 +46,7 @@ def render(ctx):
                     tempo_est = f"~{anos:.1f} anos"
             elif rest <= 0:
                 tempo_est = "🎉 Meta alcançada!"
-            
-            # Ícone inteligente baseado no nome da meta
+
             meta_icon = "🎯"
             nome_lower = m["nome"].lower()
             if any(w in nome_lower for w in ["viagem", "férias", "praia"]):
@@ -70,7 +67,7 @@ def render(ctx):
             cm2, ca2 = st.columns([8, 2])
             with cm2:
                 ring_html = ring_progress(pct, size=65, stroke=6, color=ring_color, label=f"{pct:.0f}%")
-                
+
                 st.html(f"""
                     <div class="goal-card" style="border-left:4px solid {ring_color};">
                         <div style="display:flex;align-items:center;gap:1rem;">
@@ -97,7 +94,7 @@ def render(ctx):
             with ca2:
                 vinculada = pd.notna(m.get("conta_id"))
                 if vinculada:
-                    st.caption("🔗 Atualizada pelo saldo da conta")
+                    st.caption("🔗 Sincronizada com a conta")
                     with st.popover("💸 Usar Reserva", help="Retirar valor e criar despesa na conta vinculada"):
                         sacar_valor = st.number_input("Valor a retirar (R$)", min_value=0.01, step=50.0, format="%.2f", key=f"sv_{m['id']}")
                         sacar_desc = st.text_input("Descrição", value="Uso da Reserva", key=f"sd_{m['id']}")
@@ -106,8 +103,8 @@ def render(ctx):
                             cat_id = cat_res[0] if cat_res else conn.execute("SELECT id FROM categorias LIMIT 1").fetchone()[0]
                             data_tx = pd.Timestamp.now().strftime("%Y-%m-%d")
                             conn.execute("""
-                                INSERT INTO transacoes (tipo, descricao, valor, data, categoria_id, conta_id, recorrente, observacao)
-                                VALUES ('despesa', ?, ?, ?, ?, ?, 0, 'Gerado por: Usar Reserva')
+                                INSERT INTO transacoes (tipo, descricao, valor, data, categoria_id, conta_id, recorrente, observacao, is_transferencia)
+                                VALUES ('despesa', ?, ?, ?, ?, ?, 0, 'Gerado por: Usar Reserva', 1)
                             """, (sacar_desc, sacar_valor, data_tx, cat_id, int(m["conta_id"])))
                             conn.commit()
                             from core.models import clear_cache_transacoes
@@ -122,16 +119,17 @@ def render(ctx):
                         if av > 0:
                             conn.execute("UPDATE metas SET valor_atual=valor_atual+? WHERE id=?", (av, m["id"]))
                             conn.commit()
-                            
                             novo_valor = m["valor_atual"] + av
                             if m["valor_atual"] < m["valor_meta"] and novo_valor >= m["valor_meta"]:
                                 st.session_state["show_balloons"] = True
-                                
                             st.rerun()
                 with a2:
                     if not vinculada and st.button("➖", key=f"bs_{m['id']}"):
                         if av > 0:
-                            conn.execute("UPDATE metas SET valor_atual=MAX(0, valor_atual-?) WHERE id=?", (av, m["id"]))
+                            if getattr(conn, 'is_postgres', False):
+                                conn.execute("UPDATE metas SET valor_atual=GREATEST(0, valor_atual-?) WHERE id=?", (av, m["id"]))
+                            else:
+                                conn.execute("UPDATE metas SET valor_atual=MAX(0, valor_atual-?) WHERE id=?", (av, m["id"]))
                             conn.commit()
                             st.rerun()
                 with a3:
@@ -141,8 +139,7 @@ def render(ctx):
                             conn.execute("DELETE FROM metas WHERE id=?", (m["id"],))
                             conn.commit()
                             st.rerun()
-        
-        # Metas 100% alcançadas — mostrar badges
+
         metas_completas = [m for _, m in metas_df.iterrows() if m["valor_atual"] >= m["valor_meta"]]
         if metas_completas:
             sec("🏆", "Metas Conquistadas!")
@@ -165,18 +162,29 @@ def render(ctx):
     # ── Nova Meta ─────────────────────────────────────────────────────
     sec("➕", "Nova Meta")
     with st.form("form_meta", clear_on_submit=True):
-        m1, m2, m3 = st.columns(3)
+        m1, m2, m3, m4 = st.columns([1.4, 1, 1, 1.4])
         with m1:
             nm2 = st.text_input("Nome", placeholder="Ex: Reserva de Emergência")
         with m2:
             vm = st.number_input("Valor da meta (R$)", min_value=0.01, step=100.0, format="%.2f")
         with m3:
             va = st.number_input("Valor já guardado (R$)", min_value=0.0, step=100.0, format="%.2f")
-        if st.form_submit_button("💾 Criar Meta", width='stretch'):
+        with m4:
+            opcoes_vinculo = {"Manual (sem vínculo)": None}
+            if not contas_df.empty:
+                for _, cr in contas_df.iterrows():
+                    opcoes_vinculo[f"🔗 {cr['icone']} {cr['nome']}"] = int(cr["id"])
+            vinc_sel = st.selectbox("Vincular a Conta (opcional)", list(opcoes_vinculo.keys()))
+            conta_vinc_id = opcoes_vinculo[vinc_sel]
+
+        if st.form_submit_button("💾 Criar Meta", use_container_width=True, type="primary"):
             if nm2.strip() and vm > 0:
-                conn.execute("INSERT INTO metas (nome,valor_meta,valor_atual) VALUES (?,?,?)", (nm2.strip(), vm, va))
+                conn.execute(
+                    "INSERT INTO metas (nome,valor_meta,valor_atual,conta_id) VALUES (?,?,?,?)",
+                    (nm2.strip(), vm, va, conta_vinc_id),
+                )
                 conn.commit()
-                st.success("✅ Criada!")
+                st.toast("✅ Meta criada com sucesso!")
                 st.rerun()
 
     # ── Calculadora de Reserva de Emergência ──────────────────────────
@@ -207,7 +215,7 @@ def render(ctx):
                     <div style="font-size:0.72rem;color:var(--text2);margin-top:0.3rem;">Faltam {fmt(falta6)}</div>
                 </div>
             """)
-        
+
         with col_r12:
             ring12 = ring_progress(pct12, size=80, stroke=7, color="#4e8cff", label=f"{pct12:.0f}%")
             st.html(f"""
@@ -231,7 +239,7 @@ def render(ctx):
                 </div>
                 """
             planos_html += '</div>'
-            st.markdown(planos_html)
+            st.html(planos_html)
 
         st.html(f"""
             <div class="insight-card" style="margin-top:0.8rem;">

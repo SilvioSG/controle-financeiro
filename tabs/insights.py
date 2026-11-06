@@ -1,16 +1,14 @@
 """
 tabs/insights.py — Aba de Insights e análise financeira.
-Versão 2.0: Insights com prioridade, radar de saúde, heatmap melhorado, tooltips contextuais.
+Versão 2.5: Filtros anti-transferência corrigidos, IA integrada ao secrets.toml, radar de 5 pilares.
 """
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 
-from core.utils import fmt, get_pref, MESES_PT, TAXA_SIMPLES, PLOTLY_LAYOUT
+from core.utils import fmt, get_pref, MESES_PT, get_taxa_simples, get_gemini_api_key, PLOTLY_LAYOUT
 from core.database import read_sql
-import html
 from components.cards import sec, ring_progress
-from components.tooltip_helper import get_tooltip
 from intelligence.insights import gerar_insights
 
 
@@ -27,38 +25,37 @@ def render(ctx):
     saldo_total = ctx["saldo_total"]
     hoje = ctx["hoje"]
     dias_mes = ctx["dias_mes"]
+    taxa_simples = ctx.get("taxa_simples", get_taxa_simples())
 
     # ══════════════════════════════════════════════════════════════════
     # RADAR DE SAÚDE FINANCEIRA
     # ══════════════════════════════════════════════════════════════════
     sec("🎯", "Radar de Saúde Financeira")
     st.caption("Visão rápida de 5 pilares da sua vida financeira.")
-    
+
     saldo_reserva = ctx.get("saldo_reserva", 0)
-    score = ctx.get("score", 0)
-    
-    # Calcular scores por pilar
+
     # 1. Economia (% que sobra da receita)
     economia_score = max(0, min(100, ((rec_mes - desp_mes - simples_mes) / max(rec_mes, 1)) * 200))
-    
+
     # 2. Investimento (se tem reserva/investimento)
     investimento_score = min(100, (saldo_reserva / max(desp_mes * 3, 1)) * 100) if desp_mes > 0 else 0
-    
+
     # 3. Controle de gastos (% do orçamento usado)
     total_orc = conn.execute("SELECT COALESCE(SUM(valor_limite),0) FROM orcamentos WHERE mes=? AND ano=?", (mes_sel, ano_sel)).fetchone()[0]
     if total_orc > 0:
-        gasto_pct = min(desp_mes / total_orc, 1.5) 
+        gasto_pct = min(desp_mes / total_orc, 1.5)
         orcamento_score = max(0, 100 - (gasto_pct - 0.5) * 200) if gasto_pct > 0.5 else 100
     else:
-        orcamento_score = 50  # Não tem orçamento, nota neutra
-    
+        orcamento_score = 50
+
     # 4. Emergência (meses de reserva)
     if desp_mes > 0 and saldo_reserva > 0:
         meses_reserva = saldo_reserva / desp_mes
         emergencia_score = min(100, (meses_reserva / 6) * 100)
     else:
         emergencia_score = 0
-    
+
     # 5. Dívida (se cartão está controlado)
     total_cc = conn.execute("SELECT COALESCE(SUM(limite_cartao),0) FROM contas WHERE tipo='Cartão de Crédito'").fetchone()[0]
     total_cc_usado = conn.execute("""
@@ -68,16 +65,15 @@ def render(ctx):
         ), 0) FROM contas c WHERE c.tipo = 'Cartão de Crédito'
     """).fetchone()[0]
     if total_cc > 0:
-        divida_score = max(0, 100 - (total_cc_usado / total_cc * 100))
+        divida_score = max(0, 100 - (max(0, total_cc_usado) / total_cc * 100))
     else:
-        divida_score = 100  # Sem cartão = sem dívida
+        divida_score = 100
 
     fig_radar = go.Figure()
-    
+
     categorias_radar = ['Economia', 'Investimento', 'Orçamento', 'Emergência', 'Dívida']
     valores = [economia_score, investimento_score, orcamento_score, emergencia_score, divida_score]
-    
-    # Área ideal (tudo 70+)
+
     fig_radar.add_trace(go.Scatterpolar(
         r=[70]*5 + [70],
         theta=categorias_radar + [categorias_radar[0]],
@@ -86,7 +82,7 @@ def render(ctx):
         line=dict(color='rgba(0,212,170,0.3)', width=1, dash='dash'),
         name='Zona Ideal (70+)',
     ))
-    
+
     fig_radar.add_trace(go.Scatterpolar(
         r=valores + [valores[0]],
         theta=categorias_radar + [categorias_radar[0]],
@@ -96,14 +92,14 @@ def render(ctx):
         name='Sua Situação',
         hovertemplate='%{theta}: %{r:.0f}/100<extra></extra>',
     ))
-    
+
     fig_radar.update_layout(
         polar=dict(
-            radialaxis=dict(visible=True, range=[0, 100], showticklabels=True, 
-                          tickfont=dict(size=9, color='#5a6478'),
-                          gridcolor='rgba(255,255,255,0.05)'),
+            radialaxis=dict(visible=True, range=[0, 100], showticklabels=True,
+                            tickfont=dict(size=9, color='#5a6478'),
+                            gridcolor='rgba(255,255,255,0.05)'),
             angularaxis=dict(tickfont=dict(size=11, color='#8b95a5'),
-                           gridcolor='rgba(255,255,255,0.05)'),
+                             gridcolor='rgba(255,255,255,0.05)'),
             bgcolor='rgba(0,0,0,0)',
         ),
         paper_bgcolor='rgba(0,0,0,0)',
@@ -113,9 +109,8 @@ def render(ctx):
         legend=dict(bgcolor='rgba(0,0,0,0)', font=dict(size=10)),
         showlegend=True,
     )
-    st.plotly_chart(fig_radar, key="radar_health")
+    st.plotly_chart(fig_radar, key="radar_health", use_container_width=True)
 
-    # Mini-cards de cada pilar
     pilares = [
         ("💰", "Economia", economia_score, "#00d4aa"),
         ("📈", "Investimento", investimento_score, "#4e8cff"),
@@ -137,14 +132,13 @@ def render(ctx):
     st.html("<br>")
 
     # ══════════════════════════════════════════════════════════════════
-    # DICAS PERSONALIZADAS (com prioridade)
+    # DICAS PERSONALIZADAS
     # ══════════════════════════════════════════════════════════════════
     sec("💡", "Dicas Personalizadas")
     st.caption("Análise automática baseada nos seus dados reais.")
 
     insights = gerar_insights(conn, rec_mes, desp_mes, simples_mes, prefixo_mes, mes_sel, ano_sel, saldo_total)
     for idx, (icone, label, texto) in enumerate(insights):
-        # Determinar prioridade baseada no ícone/conteúdo
         if any(w in texto.lower() for w in ["atenção", "cuidado", "ultrapass", "alto"]):
             priority_cls = "critical"
             priority_text = "ATENÇÃO"
@@ -154,7 +148,7 @@ def render(ctx):
         else:
             priority_cls = "positive"
             priority_text = "POSITIVO"
-        
+
         st.html(f"""
             <div class="insight-card" style="animation-delay:{idx * 0.08}s;">
                 <span class="insight-icon">{icone}</span>
@@ -167,80 +161,78 @@ def render(ctx):
         """)
 
     st.html("<br>")
-    
+
     # ── IA Consultor de Custos ─────────────────────────────────────────
     with st.expander("🤖 Consultor de Redução de Custos (IA Gemini)", expanded=False):
-        st.markdown("A Inteligência Artificial vai analisar todos os seus gastos deste mês e sugerir cortes precisos e planos de economia.")
-        
-        import google.genai as genai
-        api_key_custos = st.text_input(
-            "Chave de API do Google Gemini", type="password",
-            key="gemini_key_custos",
-            help="Pegue sua chave gratuitamente no Google AI Studio (aistudio.google.com).",
-        )
+        st.markdown("A Inteligência Artificial analisa seus gastos reais deste mês e sugere cortes práticos e metas de economia.")
+        saved_key = get_gemini_api_key()
+        if saved_key:
+            api_key_custos = saved_key
+            st.caption("🔑 Chave da API Gemini carregada automaticamente.")
+        else:
+            api_key_custos = st.text_input(
+                "Chave de API do Google Gemini", type="password",
+                key="gemini_key_custos",
+                help="Pegue sua chave gratuitamente no Google AI Studio (aistudio.google.com) ou salve em [gemini] api_key no secrets.toml.",
+            )
+            if api_key_custos:
+                st.session_state["gemini_api_key_shared"] = api_key_custos
 
-        if st.button("Analisar Meus Gastos", type="primary"):
+        if st.button("✨ Analisar Meus Gastos com IA", type="primary", use_container_width=True):
             if not api_key_custos:
                 st.error("Por favor, insira sua Chave de API para usar a Inteligência Artificial.")
             else:
-                with st.spinner("A IA está analisando suas transações. Isso pode levar alguns segundos..."):
+                with st.spinner("A IA está analisando suas transações..."):
                     try:
+                        import google.genai as genai
                         client = genai.Client(api_key=api_key_custos)
-                        
+
                         txs_ia = conn.execute(
                             "SELECT t.descricao, t.valor, c.nome, t.data FROM transacoes t "
                             "LEFT JOIN categorias c ON t.categoria_id = c.id "
-                            "WHERE t.tipo = 'despesa' AND t.data LIKE ?", (f"{prefixo_mes}%",)
+                            "WHERE t.tipo = 'despesa' AND COALESCE(t.is_transferencia,0)=0 AND t.data LIKE ?",
+                            (f"{prefixo_mes}%",),
                         ).fetchall()
-                        
+
                         if not txs_ia:
                             st.warning("Você não tem gastos registrados neste mês para analisar.")
                         else:
-                            gastos_str = "\\n".join([f"- {tx[3]}: {tx[0]} ({tx[2]}) -> R$ {tx[1]:.2f}" for tx in txs_ia])
-                            
+                            gastos_str = "\n".join([f"- {tx[3]}: {tx[0]} ({tx[2]}) -> R$ {tx[1]:.2f}" for tx in txs_ia])
+
                             prompt = f"""
-                            Atue como um consultor financeiro implacável especializado em redução de custos pessoais.
-                            O usuário quer saber onde ele pode cortar gastos baseado nas transações deste mês.
-                            
+                            Atue como um consultor financeiro especialista em eficiência e redução de custos pessoais.
                             Resumo do mês:
                             Receitas: R$ {rec_mes:.2f}
                             Despesas: R$ {desp_mes:.2f}
-                            
+
                             Lista detalhada de Despesas:
                             {gastos_str}
-                            
+
                             Sua tarefa:
-                            1. Identifique os 3 maiores gargalos ou gastos supérfluos (se houver).
-                            2. Sugira cortes ou trocas práticas (ex: 'trocar plano A por B', 'reduzir ifood', etc).
+                            1. Identifique os 3 maiores gargalos ou gastos supérfluos.
+                            2. Sugira cortes ou trocas práticas com estimativa de economia mensal em R$.
                             3. Dê uma nota de 0 a 10 para o controle de gastos deste mês.
-                            
-                            Responda diretamente ao usuário com tom amigável mas firme. Formate a resposta usando Markdown (listas, negritos). Não crie textos muito longos, seja direto ao ponto.
+
+                            Formate a resposta usando Markdown claro e objetivo.
                             """
-                            
+
                             response = client.models.generate_content(
                                 model='gemini-2.5-flash',
-                                contents=prompt
+                                contents=prompt,
                             )
-                            
-                            st.html("""
-                            <div style="background:rgba(168,85,247,0.1); border-left:4px solid var(--purple); padding:1rem; border-radius:8px; margin-top:1rem;">
-                                <h4 style="color:var(--purple); margin-top:0;">🤖 Análise da I.A. Concluída</h4>
-                            """)
-                            
-                            st.markdown(response.text)
-                            
-                            st.markdown("</div>")
-                            
+                            with st.container(border=True):
+                                st.markdown("#### 🤖 Diagnóstico de Custos da IA")
+                                st.markdown(response.text)
                     except Exception as e:
                         st.error(f"Erro ao consultar a IA: {e}")
 
     st.html("<br>")
 
     # ══════════════════════════════════════════════════════════════════
-    # COMPARATIVO COM MÊS ANTERIOR (melhorado)
+    # COMPARATIVO COM MÊS ANTERIOR
     # ══════════════════════════════════════════════════════════════════
     sec("📊", "Comparativo com Mês Anterior")
-    p_ant, m_ant, a_ant = get_pref(mes_sel - 1, ano_sel)
+    p_ant, m_ant, _ = get_pref(mes_sel - 1, ano_sel)
     rec_ant = conn.execute(
         "SELECT COALESCE(SUM(valor),0) FROM transacoes WHERE tipo='receita' AND COALESCE(is_transferencia,0)=0 AND data LIKE ?",
         (f"{p_ant}%",),
@@ -280,7 +272,7 @@ def render(ctx):
     with col_c2:
         comp_card("Despesas", desp_mes, desp_ant, "📉", is_expense=True)
     with col_c3:
-        comp_card("Balanço", balanco_mes, rec_ant - desp_ant - rec_ant * TAXA_SIMPLES, "💰")
+        comp_card("Balanço", balanco_mes, rec_ant - desp_ant - rec_ant * taxa_simples, "💰")
 
     st.html("<br>")
 
@@ -315,14 +307,14 @@ def render(ctx):
     st.html("<br>")
 
     # ── Média últimos 3 meses por categoria ───────────────────────────
-    sec("📋", "Média de Gastos (3 meses) por Categoria")
+    sec("📋", "Média de Gastos por Categoria")
     media_cats = read_sql("""
         SELECT c.icone, c.nome, AVG(sub.total) as media FROM (
             SELECT t.categoria_id, SUM(t.valor) as total, substr(t.data,1,7) as mes
-            FROM transacoes t WHERE t.tipo='despesa'
+            FROM transacoes t WHERE t.tipo='despesa' AND COALESCE(t.is_transferencia,0)=0
             GROUP BY t.categoria_id, substr(t.data,1,7)
         ) sub JOIN categorias c ON sub.categoria_id = c.id
-        GROUP BY c.id ORDER BY media DESC LIMIT 8
+        GROUP BY c.id, c.icone, c.nome ORDER BY media DESC LIMIT 8
     """, conn)
     if not media_cats.empty:
         cols_mc = st.columns(4)
@@ -339,34 +331,33 @@ def render(ctx):
 
     # ── Evolução de Categorias (6 meses) ───────────────────────────
     sec("📈", "Evolução de Categorias (Últimos 6 meses)")
-    
-    mes_ant6 = mes_sel - 5
-    ano_ant6 = ano_sel
-    if mes_ant6 <= 0:
-        mes_ant6 += 12
-        ano_ant6 -= 1
-    p_ant6 = f"{ano_ant6}-{mes_ant6:02d}"
-    
+
+    p_ant6, _, _ = get_pref(mes_sel - 5, ano_sel)
+
     cat_evol_df = read_sql("""
         SELECT c.nome, substr(t.data,1,7) as mes, SUM(t.valor) as total
         FROM transacoes t
         JOIN categorias c ON t.categoria_id = c.id
-        WHERE t.tipo = 'despesa' AND substr(t.data,1,7) >= ?
+        WHERE t.tipo = 'despesa' AND COALESCE(t.is_transferencia,0)=0 AND substr(t.data,1,7) >= ?
         GROUP BY c.nome, substr(t.data,1,7)
     """, conn, params=(p_ant6,))
-    
+
     if not cat_evol_df.empty:
         cats_disponiveis = cat_evol_df["nome"].unique().tolist()
-        cats_selecionadas = st.multiselect("Selecione as categorias para comparar:", cats_disponiveis, default=cats_disponiveis[:3] if len(cats_disponiveis)>=3 else cats_disponiveis)
-        
+        cats_selecionadas = st.multiselect(
+            "Selecione as categorias para comparar:",
+            cats_disponiveis,
+            default=cats_disponiveis[:3] if len(cats_disponiveis) >= 3 else cats_disponiveis,
+        )
+
         if cats_selecionadas:
             fig_cat = go.Figure()
             for cat in cats_selecionadas:
                 df_cat = cat_evol_df[cat_evol_df["nome"] == cat].sort_values("mes")
                 fig_cat.add_trace(go.Scatter(x=df_cat["mes"], y=df_cat["total"], mode="lines+markers", name=cat, line=dict(width=3)))
-                
+
             fig_cat.update_layout(**PLOTLY_LAYOUT, height=300, yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.03)"), xaxis=dict(showgrid=False))
-            st.plotly_chart(fig_cat, width='stretch')
+            st.plotly_chart(fig_cat, use_container_width=True)
     else:
         st.info("Sem dados suficientes para os últimos 6 meses.")
     st.html("<br>")
@@ -375,25 +366,24 @@ def render(ctx):
     sec("📅", "Gastos por Dia da Semana")
     dias_semana_map = {0: "Seg", 1: "Ter", 2: "Qua", 3: "Qui", 4: "Sex", 5: "Sáb", 6: "Dom"}
     txs_mes = read_sql(
-        "SELECT data, valor FROM transacoes WHERE tipo='despesa' AND data LIKE ?",
+        "SELECT data, valor FROM transacoes WHERE tipo='despesa' AND COALESCE(is_transferencia,0)=0 AND data LIKE ?",
         conn, params=(f"{prefixo_mes}%",),
     )
     if not txs_mes.empty:
         txs_mes["dia_semana"] = pd.to_datetime(txs_mes["data"]).dt.dayofweek
         gastos_dia = txs_mes.groupby("dia_semana")["valor"].sum().reindex(range(7), fill_value=0)
-        
+
         max_val = gastos_dia.max() if gastos_dia.max() > 0 else 1
-        
+
         cols_hm = st.columns(7)
         for d in range(7):
             val = gastos_dia[d]
             intensidade = min(val / max_val, 1.0)
-            # Gradiente do azul ao vermelho
             r = int(30 + intensidade * 225)
             g = int(40 + (1 - intensidade) * 100)
             b = int(100 - intensidade * 50)
             cor_bg = f"rgba({r},{g},{b},{0.15 + intensidade * 0.4})"
-            
+
             with cols_hm[d]:
                 st.html(f"""
                     <div style="background:{cor_bg}; border-radius:10px; padding:0.8rem 0.2rem; text-align:center; display:flex; flex-direction:column; justify-content:center; min-height:80px; border:1px solid rgba(255,255,255,0.05); transition:all 0.3s;">
@@ -401,14 +391,14 @@ def render(ctx):
                         <div style="font-size:0.8rem; font-weight:800; color:#fff; margin-top:0.3rem;">{fmt(val)}</div>
                     </div>
                 """)
-                
+
         dia_max = gastos_dia.idxmax()
         val_max = gastos_dia.max()
         if val_max > 0:
             st.html(f"""
                 <div class="alert-card warning" style="margin-top:1rem;">
                     <span class="alert-icon">💡</span>
-                    <span class="alert-text"><b>Insight Automático:</b> Você costuma gastar mais às <b>{dias_semana_map[dia_max]}s-feiras</b> (média de {fmt(val_max)}).</span>
+                    <span class="alert-text"><b>Insight Automático:</b> Você costuma concentrar maiores gastos em <b>{dias_semana_map[dia_max]}</b> (total de {fmt(val_max)} no mês).</span>
                 </div>
             """)
     else:
@@ -418,45 +408,36 @@ def render(ctx):
 
     # ── Heatmap Estilo GitHub (Atividade) ──────────────────────────────
     sec("🔥", "Frequência de Registros (Últimos 6 meses)")
-    st.caption("Acompanhe sua consistência em registrar transações (Gamificação).")
-    
+    st.caption("Acompanhe sua consistência em registrar transações.")
+
     import datetime
     seis_meses_atras = hoje - datetime.timedelta(days=180)
     txs_freq = read_sql(
         "SELECT data, COUNT(id) as qtd FROM transacoes WHERE data >= ? GROUP BY data",
-        conn, params=(seis_meses_atras.strftime("%Y-%m-%d"),)
+        conn, params=(seis_meses_atras.strftime("%Y-%m-%d"),),
     )
-    
-    # Criar um dict de data -> qtd
-    dict_freq = {}
-    if not txs_freq.empty:
-        dict_freq = {r["data"]: r["qtd"] for _, r in txs_freq.iterrows()}
-        
+
+    dict_freq = {r["data"]: r["qtd"] for _, r in txs_freq.iterrows()} if not txs_freq.empty else {}
     max_qtd = max(dict_freq.values()) if dict_freq else 1
-    
-    # Gerar a matriz de 7 dias x ~26 semanas
+
     dias_grid = []
     curr_date = seis_meses_atras
-    
-    # Preencher espaços vazios até segunda-feira
     offset_inicio = curr_date.weekday()
     semana_atual = [None] * offset_inicio
-    
+
     while curr_date <= hoje:
         semana_atual.append(curr_date)
         if len(semana_atual) == 7:
             dias_grid.append(semana_atual)
             semana_atual = []
         curr_date += datetime.timedelta(days=1)
-        
+
     if semana_atual:
         while len(semana_atual) < 7:
             semana_atual.append(None)
         dias_grid.append(semana_atual)
-        
-    # Renderizar HTML do grid
+
     gh_html = '<div style="display:flex; gap:4px; overflow-x:auto; padding-bottom:10px;">'
-    
     for semana in dias_grid:
         gh_html += '<div style="display:flex; flex-direction:column; gap:4px;">'
         for dia_data in semana:
@@ -465,23 +446,16 @@ def render(ctx):
             else:
                 str_d = dia_data.strftime("%Y-%m-%d")
                 qtd = dict_freq.get(str_d, 0)
-                
                 if qtd == 0:
                     cor_bg = "rgba(255,255,255,0.05)"
                 else:
-                    # Cores estilo GitHub (tons de verde/azul)
                     intensidade = min(qtd / max_qtd, 1.0)
-                    r = int(11 + (0 - 11) * intensidade)
-                    g = int(255 * intensidade)
-                    b = int(110 + (170 - 110) * intensidade)
                     cor_bg = f"rgba(0, 212, 170, {max(0.3, intensidade)})"
-                    
                 tooltip_txt = f"{qtd} transações em {str_d}" if qtd > 0 else f"Sem registros em {str_d}"
                 gh_html += f'<div title="{tooltip_txt}" style="width:12px; height:12px; border-radius:3px; background:{cor_bg}; border: 1px solid rgba(255,255,255,0.02);"></div>'
         gh_html += '</div>'
     gh_html += '</div>'
-    
-    # Legenda
+
     gh_html += """
     <div style="display:flex; align-items:center; gap:5px; font-size:0.65rem; color:var(--text3); margin-top:0.5rem; justify-content:flex-end;">
         <span>Menos</span>
@@ -492,57 +466,46 @@ def render(ctx):
         <span>Mais</span>
     </div>
     """
-    
-    st.html(f"""
-        <div class="glass-card" style="padding: 1rem;">
-            {gh_html}
-        </div>
-    """)
 
+    st.html(f'<div class="glass-card" style="padding: 1rem;">{gh_html}</div>')
     st.html("<br>")
 
     # ── Projeção de Patrimônio - 12 Meses ──────────────────────────
     sec("🔮", "Projeção de Patrimônio (12 meses)")
     st.caption("Baseado na sua média de economia dos últimos 3 meses.")
-    
+
     sobras_3m = []
     for i in range(1, 4):
-        p_ant_proj, m_ant_proj, a_ant_proj = get_pref(mes_sel - i, ano_sel)
+        p_ant_proj, _, _ = get_pref(mes_sel - i, ano_sel)
         r_ant = conn.execute("SELECT COALESCE(SUM(valor),0) FROM transacoes WHERE tipo='receita' AND COALESCE(is_transferencia,0)=0 AND data LIKE ?", (f"{p_ant_proj}%",)).fetchone()[0]
         d_ant = conn.execute("SELECT COALESCE(SUM(valor),0) FROM transacoes WHERE tipo='despesa' AND COALESCE(is_transferencia,0)=0 AND data LIKE ?", (f"{p_ant_proj}%",)).fetchone()[0]
-        s_ant = r_ant * TAXA_SIMPLES
+        s_ant = r_ant * taxa_simples
         sobras_3m.append(max(0, r_ant - d_ant - s_ant))
-    
+
     media_sobra = sum(sobras_3m) / len(sobras_3m) if sobras_3m else 0
-    
+
     if media_sobra > 0:
-        meses_proj = []
-        proj_real = []
-        proj_otimista = []
-        proj_pessimista = []
-        
+        meses_proj, proj_real, proj_otimista, proj_pessimista = [], [], [], []
         patrimonio_base = saldo_total + ctx.get("saldo_reserva", 0)
         acumulado = patrimonio_base
         acumulado_ot = patrimonio_base
         acumulado_pe = patrimonio_base
-        
         taxa = 0.01
-        
+
         for i in range(1, 13):
-            p_futuro, m_futuro, a_futuro = get_pref(mes_sel + i, ano_sel)
+            _, m_futuro, a_futuro = get_pref(mes_sel + i, ano_sel)
             meses_proj.append(f"{MESES_PT[m_futuro][:3]}/{str(a_futuro)[2:]}")
-            
+
             acumulado = (acumulado * (1 + taxa)) + media_sobra
             proj_real.append(acumulado)
-            
+
             acumulado_ot = (acumulado_ot * (1 + taxa)) + (media_sobra * 1.2)
             proj_otimista.append(acumulado_ot)
-            
+
             acumulado_pe = (acumulado_pe * (1 + taxa)) + (media_sobra * 0.8)
             proj_pessimista.append(acumulado_pe)
 
         fig_proj = go.Figure()
-        
         fig_proj.add_trace(go.Scatter(
             x=meses_proj + meses_proj[::-1],
             y=proj_otimista + proj_pessimista[::-1],
@@ -550,43 +513,40 @@ def render(ctx):
             fillcolor='rgba(78, 140, 255, 0.08)',
             line=dict(color='rgba(255,255,255,0)'),
             hoverinfo="skip",
-            showlegend=False
+            showlegend=False,
         ))
-        
         fig_proj.add_trace(go.Scatter(
             x=meses_proj, y=proj_real,
-            mode='lines+markers',
-            name='Cenário Base',
+            mode='lines+markers', name='Cenário Base',
             line=dict(color='#4e8cff', width=3),
             marker=dict(size=6, color='#4e8cff'),
-            hovertemplate='%{x}<br>Patrimônio: R$ %{y:,.2f}<extra></extra>'
+            hovertemplate='%{x}<br>Patrimônio: R$ %{y:,.2f}<extra></extra>',
         ))
-        
         fig_proj.add_trace(go.Scatter(
             x=meses_proj, y=proj_otimista,
-            mode='lines',
-            name='Otimista (+20% eco.)',
+            mode='lines', name='Otimista (+20% eco.)',
             line=dict(color='#00d4aa', width=1.5, dash='dash'),
-            hovertemplate='%{x}<br>Otimista: R$ %{y:,.2f}<extra></extra>'
+            hovertemplate='%{x}<br>Otimista: R$ %{y:,.2f}<extra></extra>',
         ))
-        
         fig_proj.add_trace(go.Scatter(
             x=meses_proj, y=proj_pessimista,
-            mode='lines',
-            name='Pessimista (-20% eco.)',
+            mode='lines', name='Pessimista (-20% eco.)',
             line=dict(color='#ff4b6e', width=1.5, dash='dash'),
-            hovertemplate='%{x}<br>Pessimista: R$ %{y:,.2f}<extra></extra>'
+            hovertemplate='%{x}<br>Pessimista: R$ %{y:,.2f}<extra></extra>',
         ))
 
-        proj_layout = {**PLOTLY_LAYOUT, "legend": dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, bgcolor="rgba(0,0,0,0)", font=dict(color="#8b95a5", size=11))}
+        proj_layout = {
+            **PLOTLY_LAYOUT,
+            "legend": dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, bgcolor="rgba(0,0,0,0)", font=dict(color="#8b95a5", size=11)),
+        }
         fig_proj.update_layout(
             **proj_layout, height=320,
             xaxis=dict(showgrid=False),
             yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.03)"),
             hovermode="x unified",
         )
-        st.plotly_chart(fig_proj, key="proj_chart")
-        
+        st.plotly_chart(fig_proj, key="proj_chart", use_container_width=True)
+
         st.html(f"""
             <div style="display:flex; justify-content:space-between; align-items:center; background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.05); padding:1rem; border-radius:12px; margin-top:0.5rem;">
                 <div>
@@ -600,4 +560,4 @@ def render(ctx):
             </div>
         """)
     else:
-        st.info("Para gerar uma projeção, você precisa ter uma média de economia (sobra positiva) nos últimos 3 meses.")
+        st.info("Para gerar uma projeção, você precisa ter uma média de economia positiva nos últimos 3 meses.")

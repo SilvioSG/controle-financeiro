@@ -1,30 +1,31 @@
-# Virtual environment
+# Ambientes virtuais e cache Python
 venv/
+.venv/
 __pycache__/
 *.pyc
 
-# Database files
-financas.db
-financas.db-shm
-financas.db-wal
-financeiro.db
+# Bancos de dados locais, backups e relatórios gerados (dados financeiros pessoais)
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
 backups/
+exports/
+*.pdf
 
 # Secrets e credenciais (NUNCA subir para o GitHub!)
 .streamlit/secrets.toml
+secrets.toml
+.env
+*.env
 
-# Scripts temporários
-migrar_db.py
-test_sidebar.py
+# Pastas temporárias e de rascunho
+scratch/
+.agents/
 
-# IDE
+# IDE e Sistema Operacional
 .vscode/
 .idea/
-
-# OS
 .DS_Store
 Thumbs.db
-
-# Gemini agent files
-.agents/
-sync_seq.py

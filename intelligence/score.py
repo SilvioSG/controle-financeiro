@@ -2,7 +2,6 @@
 intelligence/score.py — Cálculo do score de saúde financeira (0-100).
 """
 from core.utils import get_pref
-from core.database import saldo_conta
 
 
 def calcular_score(conn, rec, desp, simples, prefixo, mes, ano, saldo_reserva=0):
@@ -12,7 +11,7 @@ def calcular_score(conn, rec, desp, simples, prefixo, mes, ano, saldo_reserva=0)
     # 1. Taxa de poupança (30 pts) — (rec - desp - simples) / rec
     if rec > 0:
         taxa = (rec - desp - simples) / rec
-        pontos += min(taxa / 0.20, 1.0) * 30
+        pontos += max(0.0, min(taxa / 0.20, 1.0)) * 30
     elif desp == 0:
         pontos += 15  # sem dados
 
@@ -36,13 +35,14 @@ def calcular_score(conn, rec, desp, simples, prefixo, mes, ano, saldo_reserva=0)
         (mes, ano),
     ).fetchall()
     if orcs:
-        # Pega gastos de todas as categorias no mês em 1 query (evita N+1)
+        # Pega gastos de todas as categorias no mês em 1 query (evita N+1 e ignora transferências)
         g_por_cat = conn.execute(
-            "SELECT categoria_id, SUM(valor) FROM transacoes WHERE tipo='despesa' AND data LIKE ? GROUP BY categoria_id",
+            "SELECT categoria_id, SUM(valor) FROM transacoes "
+            "WHERE tipo='despesa' AND COALESCE(is_transferencia,0)=0 AND data LIKE ? GROUP BY categoria_id",
             (f"{prefixo}%",)
         ).fetchall()
         gastos_dict = {row[0]: row[1] for row in g_por_cat}
-        
+
         dentro = sum(1 for cat_id, lim in orcs if gastos_dict.get(cat_id, 0) <= lim)
         pontos += (dentro / len(orcs)) * 20
     else:
@@ -76,7 +76,7 @@ def calcular_score(conn, rec, desp, simples, prefixo, mes, ano, saldo_reserva=0)
 
     # 5. Diversificação de receitas (10 pts)
     fontes = conn.execute(
-        "SELECT COUNT(DISTINCT categoria_id) FROM transacoes WHERE tipo='receita' AND data LIKE ?",
+        "SELECT COUNT(DISTINCT categoria_id) FROM transacoes WHERE tipo='receita' AND COALESCE(is_transferencia,0)=0 AND data LIKE ?",
         (f"{prefixo}%",),
     ).fetchone()[0]
     if fontes >= 3:

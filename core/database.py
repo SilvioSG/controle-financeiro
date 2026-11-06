@@ -15,20 +15,32 @@ class DBConnection:
 
     Converte automaticamente:
     - Placeholders: ? → %s (para PostgreSQL)
+    - Reconecta automaticamente apenas se a conexão cair (zero latência extra)
     - Funciona de forma transparente com pd.read_sql_query()
     """
 
-    def __init__(self, conn, is_postgres=False):
+    def __init__(self, conn, is_postgres=False, dsn=None):
         self._conn = conn
         self.is_postgres = is_postgres
+        self._dsn = dsn
         self.lock = threading.Lock()
+
+    def _reconnect(self):
+        """Reconecta ao PostgreSQL caso a conexão tenha sido fechada pelo servidor."""
+        if not self.is_postgres or not self._dsn:
+            return
+        import psycopg2
+        self._conn = psycopg2.connect(self._dsn, connect_timeout=10)
+        self._conn.autocommit = True
 
     def execute(self, sql, params=None):
         with self.lock:
-            cur = self._conn.cursor()
+            if self.is_postgres and getattr(self._conn, "closed", 0) != 0:
+                self._reconnect()
+            if self.is_postgres:
+                sql = re.sub(r'\?', '%s', sql)
             try:
-                if self.is_postgres:
-                    sql = re.sub(r'\?', '%s', sql)
+                cur = self._conn.cursor()
                 if params:
                     cur.execute(sql, params)
                 else:
@@ -36,41 +48,61 @@ class DBConnection:
                 return cur
             except Exception as e:
                 if self.is_postgres:
+                    import psycopg2
+                    if isinstance(e, (psycopg2.OperationalError, psycopg2.InterfaceError)):
+                        self._reconnect()
+                        cur = self._conn.cursor()
+                        if params:
+                            cur.execute(sql, params)
+                        else:
+                            cur.execute(sql)
+                        return cur
                     try:
-                        self._conn.rollback()
+                        if not self._conn.autocommit:
+                            self._conn.rollback()
                     except Exception:
                         pass
                 raise e
 
     def executemany(self, sql, params_list):
         with self.lock:
-            cur = self._conn.cursor()
+            if self.is_postgres and getattr(self._conn, "closed", 0) != 0:
+                self._reconnect()
+            if self.is_postgres:
+                sql = re.sub(r'\?', '%s', sql)
+                params_list = [tuple(p) if isinstance(p, list) else p for p in params_list]
             try:
-                if self.is_postgres:
-                    sql = re.sub(r'\?', '%s', sql)
-                    params_list = [tuple(p) if isinstance(p, list) else p for p in params_list]
+                cur = self._conn.cursor()
                 cur.executemany(sql, params_list)
                 return cur
             except Exception as e:
                 if self.is_postgres:
                     try:
-                        self._conn.rollback()
+                        if not self._conn.autocommit:
+                            self._conn.rollback()
                     except Exception:
                         pass
                 raise e
 
     def commit(self):
         with self.lock:
-            self._conn.commit()
+            try:
+                if not getattr(self._conn, "autocommit", False):
+                    self._conn.commit()
+            except Exception:
+                pass
 
     def rollback(self):
         with self.lock:
             try:
-                self._conn.rollback()
+                if not getattr(self._conn, "autocommit", False):
+                    self._conn.rollback()
             except Exception:
                 pass
 
     def cursor(self):
+        if self.is_postgres and getattr(self._conn, "closed", 0) != 0:
+            self._reconnect()
         return self._conn.cursor()
 
     # Para pd.read_sql_query funcionar, precisa expor a interface do connection
@@ -83,33 +115,41 @@ def read_sql(sql, conn, params=None):
     import pandas as pd
     import warnings
     if getattr(conn, 'is_postgres', False):
+        if getattr(conn._conn, "closed", 0) != 0 and hasattr(conn, "_reconnect"):
+            conn._reconnect()
         sql = re.sub(r'\?', '%s', sql)
     with warnings.catch_warnings():
         warnings.simplefilter('ignore', UserWarning)
-        if params:
-            return pd.read_sql_query(sql, conn, params=params)
-        return pd.read_sql_query(sql, conn)
+        try:
+            if params:
+                return pd.read_sql_query(sql, conn, params=params)
+            return pd.read_sql_query(sql, conn)
+        except Exception:
+            if getattr(conn, 'is_postgres', False) and hasattr(conn, "_reconnect"):
+                conn._reconnect()
+                if params:
+                    return pd.read_sql_query(sql, conn, params=params)
+                return pd.read_sql_query(sql, conn)
+            raise
 
 
 # ─── Conexão ──────────────────────────────────────────────────────────────────
 
 @st.cache_resource
 def get_connection():
-    """Retorna a conexão singleton com o PostgreSQL (Supabase).
-
-    Não há fallback para SQLite: se o banco estiver indisponível, o app para
-    (antes ele abria sem login usando um banco local vazio).
-    """
+    """Retorna a conexão singleton com o PostgreSQL (Supabase)."""
     if "supabase" not in st.secrets or "url" not in st.secrets["supabase"]:
         st.error("❌ Configuração do banco ausente em secrets.toml ([supabase] url).")
         st.stop()
     try:
         import psycopg2
-        conn = psycopg2.connect(st.secrets["supabase"]["url"])
-        conn.autocommit = False
-        return DBConnection(conn, is_postgres=True)
+        dsn = st.secrets["supabase"]["url"]
+        conn = psycopg2.connect(dsn, connect_timeout=10)
+        # autocommit=True evita transações "idle in transaction" que travam o banco no Supabase
+        conn.autocommit = True
+        return DBConnection(conn, is_postgres=True, dsn=dsn)
     except Exception as e:
-        print(f"⚠️ Falha ao conectar ao Supabase: {e}")
+        print(f"[AVISO] Falha ao conectar ao Supabase: {e}")
         st.error("❌ Banco de dados indisponível no momento. Tente novamente em instantes.")
         st.stop()
 
@@ -124,11 +164,6 @@ def init_db(conn):
     global _db_initialized
     if _db_initialized:
         return
-
-    try:
-        conn.rollback() # Reset transaction state in case of previous errors
-    except Exception:
-        pass
 
     if getattr(conn, 'is_postgres', False):
         _init_db_postgres(conn)
@@ -189,7 +224,6 @@ def _init_db_sqlite(conn):
     except sqlite3.OperationalError:
         pass
 
-    # Migração: Marcar transferências existentes
     try:
         c.execute("UPDATE transacoes SET is_transferencia = 1 WHERE descricao LIKE 'Transferência %' AND is_transferencia = 0")
     except Exception:
@@ -201,6 +235,10 @@ def _init_db_sqlite(conn):
         valor_meta REAL NOT NULL,
         valor_atual REAL DEFAULT 0
     )""")
+    try:
+        c.execute("ALTER TABLE metas ADD COLUMN conta_id INTEGER REFERENCES contas(id)")
+    except sqlite3.OperationalError:
+        pass
 
     c.execute("""CREATE TABLE IF NOT EXISTS orcamentos (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -261,7 +299,16 @@ def _init_db_sqlite(conn):
 
 
 def _init_db_postgres(conn):
-    """Cria tabelas no PostgreSQL (Supabase)."""
+    """Verifica rapidamente se o schema já existe no PostgreSQL (Supabase) antes de rodar DDL."""
+    try:
+        ja_existe = conn.execute(
+            "SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='atalhos' LIMIT 1"
+        ).fetchone()
+        if ja_existe:
+            return
+    except Exception:
+        pass
+
     conn.execute("""CREATE TABLE IF NOT EXISTS contas (
         id SERIAL PRIMARY KEY,
         nome TEXT NOT NULL,
@@ -270,9 +317,9 @@ def _init_db_postgres(conn):
         saldo_inicial DOUBLE PRECISION DEFAULT 0,
         limite_cartao DOUBLE PRECISION DEFAULT 0,
         dia_fechamento INTEGER DEFAULT 1,
-        dia_vencimento INTEGER DEFAULT 10
+        dia_vencimento INTEGER DEFAULT 10,
+        ativa INTEGER DEFAULT 1
     )""")
-    conn.execute("ALTER TABLE contas ADD COLUMN IF NOT EXISTS ativa INTEGER DEFAULT 1")
 
     conn.execute("""CREATE TABLE IF NOT EXISTS categorias (
         id SERIAL PRIMARY KEY,
@@ -294,25 +341,13 @@ def _init_db_postgres(conn):
         is_transferencia INTEGER DEFAULT 0
     )""")
 
-    # Migração: Adicionar coluna se não existir (Postgres)
-    try:
-        col_check = conn.execute(
-            "SELECT 1 FROM information_schema.columns WHERE table_name='transacoes' AND column_name='is_transferencia'"
-        ).fetchone()
-        if not col_check:
-            conn.execute("ALTER TABLE transacoes ADD COLUMN is_transferencia INTEGER DEFAULT 0")
-        conn.execute("UPDATE transacoes SET is_transferencia = 1 WHERE descricao LIKE ? AND is_transferencia = 0", ("Transferência%",))
-        conn.commit()
-    except Exception:
-        conn.rollback()
-
     conn.execute("""CREATE TABLE IF NOT EXISTS metas (
         id SERIAL PRIMARY KEY,
         nome TEXT NOT NULL,
         valor_meta DOUBLE PRECISION NOT NULL,
-        valor_atual DOUBLE PRECISION DEFAULT 0
+        valor_atual DOUBLE PRECISION DEFAULT 0,
+        conta_id INTEGER REFERENCES contas(id)
     )""")
-    conn.execute("ALTER TABLE metas ADD COLUMN IF NOT EXISTS conta_id INTEGER REFERENCES contas(id)")
 
     conn.execute("""CREATE TABLE IF NOT EXISTS orcamentos (
         id SERIAL PRIMARY KEY,
@@ -362,8 +397,6 @@ def _init_db_postgres(conn):
     conn.execute("CREATE INDEX IF NOT EXISTS idx_tx_conta_pg ON transacoes (conta_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_tx_cat_pg ON transacoes (categoria_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_tx_rec_pg ON transacoes (recorrente, data)")
-
-    conn.commit()
 
 
 # ─── Seeds ────────────────────────────────────────────────────────────────────
